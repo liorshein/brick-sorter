@@ -1,0 +1,15 @@
+{
+  "name": "Brick Sorter",
+  "short_name": "Brick Sorter",
+  "description": "Photo a pile of LEGO, check what was found, and file it into your Rebrickable storage lists.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EDEFF2",
+  "theme_color": "#2346A8",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2346A8">
+<title>Brick Sorter</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#EDEFF2;--surface:#FFFFFF;--ink:#1C2230;--muted:#5D6575;--line:#D5D9E0;--pen:#2346A8;--on-pen:#FFFFFF;
+  --ok:#3E8E1C;--ok-tint:#E6F5CF;--warn:#C9620F;--warn-tint:#FCE0C8;--photo:#2A2D33;color-scheme:light}
+@media (prefers-color-scheme: dark){:root{--bg:#161A22;--surface:#202633;--ink:#EEF1F6;--muted:#A3ABBA;--line:#343C4C;--pen:#8FB0FF;--on-pen:#10131A;
+  --ok:#9BD83A;--ok-tint:#22301A;--warn:#F5A15A;--warn-tint:#3D2717;color-scheme:dark}}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.45;
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+header{position:sticky;top:0;z-index:5;background:var(--pen);color:var(--on-pen);padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0));display:flex;align-items:center;justify-content:space-between;gap:10px}
+header h1{font-size:19px;margin:0}
+header button{background:transparent;border:1.5px solid currentColor;color:inherit;border-radius:8px;padding:5px 10px;font:inherit;font-size:14px}
+main{max-width:640px;margin:0 auto;padding:16px 14px 90px}
+.card{background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:18px;margin:0 0 8px}
+p{margin:0 0 10px}
+.muted{color:var(--muted);font-size:14px}
+label.f{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
+input,select{font:inherit;font-size:16px;width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-weight:600;font-size:16px;padding:12px 18px;border-radius:12px;border:2px solid var(--pen);background:var(--pen);color:var(--on-pen);cursor:pointer;min-height:48px}
+.btn.ghost{background:transparent;color:var(--pen)}
+.btn.block{width:100%}
+.btn:disabled{opacity:.45}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row > *{flex:1}
+.picks{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:110px;border:2px dashed var(--line);border-radius:14px;font-weight:600;background:var(--surface)}
+.pick input{position:absolute;inset:0;opacity:0;width:100%;height:100%}
+.pick .big{font-size:30px}
+.status{margin-top:12px;font-size:15px;min-height:1.5em}
+.spin{display:inline-block;width:15px;height:15px;border:2.5px solid var(--line);border-top-color:var(--pen);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--pen);width:0;transition:width .2s}
+canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:var(--photo)}
+.tips li{margin-bottom:4px}
+.piece{display:grid;grid-template-columns:84px minmax(0,1fr);gap:12px;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+.piece.ok{border-color:var(--ok);background:var(--ok-tint)}
+.piece.skip{opacity:.5}
+.piece.unsure{border-color:var(--warn)}
+.piece img{width:84px;height:84px;object-fit:contain;border-radius:8px;background:var(--photo)}
+.piece .num{font-weight:700;color:var(--pen)}
+.piece .name{font-size:15px;font-weight:600}
+.piece .meta{font-size:13px;color:var(--muted)}
+.spot{display:inline-block;font-size:13px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--bg);border:1.5px solid var(--line);margin-top:4px}
+.piece select{padding:7px 8px;font-size:15px;margin-top:6px}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.acts button{font:inherit;font-size:14px;padding:7px 11px;border-radius:9px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);min-height:38px}
+.acts button.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.acts button.alt{border-color:var(--warn);color:var(--warn)}
+.qty{display:inline-flex;align-items:center;gap:4px}
+.qty span{min-width:1.8em;text-align:center;font-weight:600}
+.sticky{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:2px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom,0));z-index:5}
+.sticky .inner{max-width:640px;margin:0 auto;display:flex;gap:10px}
+.sticky .inner > *{flex:1}
+.group{background:var(--bg);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.group b{display:block}
+.group div{font-size:14px;color:var(--muted)}
+.log{font:13px/1.5 ui-monospace,monospace;white-space:pre-wrap;background:var(--bg);border-radius:10px;padding:10px;max-height:260px;overflow:auto}
+.ok-t{color:var(--ok)} .bad-t{color:var(--warn)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--warn-tint);color:var(--warn)}
+.pill.good{background:var(--ok-tint);color:var(--ok)}
+[hidden]{display:none !important}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
+</style>
+</head>
+<body>
+<header><h1>Brick Sorter</h1><button id="navSettings" type="button">Settings</button></header>
+<main>
+
+<!-- SETTINGS -->
+<section id="vSettings" hidden>
+  <div class="card">
+    <h2>1. Rebrickable API key</h2>
+    <p class="muted">From rebrickable.com → Settings → API. Stored only on this phone.</p>
+    <input id="sKey" autocomplete="off" spellcheck="false" placeholder="API key">
+    <div class="row" style="margin-top:10px"><button class="btn" id="sKeySave" type="button">Save &amp; test</button></div>
+    <div class="status" id="sKeyMsg"></div>
+  </div>
+  <div class="card">
+    <h2>2. Sign in to Rebrickable</h2>
+    <p class="muted">Needed to add parts to your lists. Your password is sent once to Rebrickable and never stored.</p>
+    <label class="f" for="sUser">Username or email</label><input id="sUser" autocomplete="username">
+    <label class="f" for="sPass">Password</label><input id="sPass" type="password" autocomplete="current-password">
+    <div class="row" style="margin-top:10px"><button class="btn" id="sLogin" type="button">Sign in</button></div>
+    <div class="status" id="sLoginMsg"></div>
+  </div>
+  <div class="card">
+    <h2>3. Storage lists</h2>
+    <p class="muted">One Rebrickable part list per drawer or slot. Safe to run again.</p>
+    <button class="btn ghost block" id="sLists" type="button">Check / create lists</button>
+    <div class="status" id="sListsMsg"></div>
+  </div>
+  <button class="btn block" id="sDone" type="button">Done</button>
+</section>
+
+<!-- SCAN -->
+<section id="vScan" hidden>
+  <div class="card">
+    <h2>Scan a pile</h2>
+    <p class="muted">10–25 pieces, a finger’s width apart, on plain matte paper that contrasts with them. Shoot from straight above.</p>
+    <div class="picks">
+      <label class="pick"><span class="big" aria-hidden="true">📷</span>Take photo<input type="file" id="cam" accept="image/*" capture="environment"></label>
+      <label class="pick"><span class="big" aria-hidden="true">🖼️</span>From gallery<input type="file" id="gal" accept="image/*"></label>
+    </div>
+    <div class="status" id="scanMsg" aria-live="polite"></div>
+    <div class="bar" id="scanBar" hidden><i></i></div>
+  </div>
+</section>
+
+<!-- REVIEW -->
+<section id="vReview" hidden>
+  <div class="card">
+    <canvas id="annot" aria-label="Your photo with numbered pieces"></canvas>
+    <ul class="tips muted" id="tips"></ul>
+  </div>
+  <div class="row" style="margin-bottom:12px">
+    <button class="btn ghost" id="acceptSure" type="button">Accept sure ones</button>
+    <button class="btn ghost" id="addMissed" type="button">Add missed piece</button>
+  </div>
+  <div id="missedForm" class="card" hidden>
+    <h2>Add a missed piece</h2>
+    <label class="f" for="mPart">Part number</label><input id="mPart" inputmode="text" autocomplete="off" placeholder="e.g. 3023">
+    <label class="f" for="mColor">Colour</label><select id="mColor"></select>
+    <div class="row" style="margin-top:12px"><button class="btn" id="mAdd" type="button">Add</button><button class="btn ghost" id="mCancel" type="button">Cancel</button></div>
+    <div class="status" id="mMsg"></div>
+  </div>
+  <div id="pieces"></div>
+  <div class="sticky"><div class="inner">
+    <button class="btn ghost" id="newScan" type="button">New scan</button>
+    <button class="btn" id="toSummary" type="button" disabled>Review 0 →</button>
+  </div></div>
+</section>
+
+<!-- SUMMARY -->
+<section id="vSummary" hidden>
+  <div class="card">
+    <h2>Where it all goes</h2>
+    <div id="groups"></div>
+  </div>
+  <div class="card">
+    <button class="btn block" id="addAll" type="button">Add to Rebrickable</button>
+    <div class="bar" id="addBar" hidden><i></i></div>
+    <div class="log" id="addLog" hidden></div>
+  </div>
+  <div class="sticky"><div class="inner">
+    <button class="btn ghost" id="backReview" type="button">← Back</button>
+    <button class="btn ghost" id="doneScan" type="button">New scan</button>
+  </div></div>
+</section>
+
+</main>
+<script src="scan-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
