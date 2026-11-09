@@ -48,6 +48,7 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .piece.ok{border-color:var(--ok);background:var(--ok-tint)}
 .piece.skip{opacity:.5}
 .piece.unsure{border-color:var(--warn)}
+.piece > img{width:84px;height:84px;object-fit:contain;border-radius:8px;background:var(--photo)}
 .pics{display:flex;flex-direction:column;gap:6px}
 .pics figure{margin:0;text-align:center}
 .pics img,.pics .noimg{width:84px;height:84px;object-fit:contain;border-radius:8px;background:var(--photo);display:block}
@@ -170,7 +171,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 </section>
 
 </main>
-<script src="scan-core.js"></script>
-<script src="app.js"></script>
+<script src="scan-core.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
