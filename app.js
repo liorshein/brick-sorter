@@ -71,7 +71,7 @@ async function getPart(num) {
   const k = String(num).trim().toLowerCase();
   if (k in partCache) return partCache[k];
   let p = null;
-  try { const d = await rb(`/lego/parts/${encodeURIComponent(num)}/`); p = { part_num: d.part_num, name: d.name, part_cat_id: d.part_cat_id }; }
+  try { const d = await rb(`/lego/parts/${encodeURIComponent(num)}/`); p = { part_num: d.part_num, name: d.name, part_cat_id: d.part_cat_id, img: d.part_img_url }; }
   catch (e) { if (e.status !== 404) throw e; }
   partCache[k] = p; savePartCache(); return p;
 }
@@ -80,7 +80,7 @@ async function partFromBL(bl) {
   if (k in partCache) return partCache[k];
   const d = await rb(`/lego/parts/?bricklink_id=${encodeURIComponent(bl)}&page_size=10`);
   let x = d.results.find(r => r.part_num === bl) || d.results[0];
-  let p = x ? { part_num: x.part_num, name: x.name, part_cat_id: x.part_cat_id } : await getPart(bl);
+  let p = x ? { part_num: x.part_num, name: x.name, part_cat_id: x.part_cat_id, img: x.part_img_url } : await getPart(bl);
   partCache[k] = p; savePartCache(); return p;
 }
 let COL = null;
@@ -256,7 +256,8 @@ async function scanFile(file) {
       const cols = (f.raw?.colors ?? []).map(c => C.byBL.get(String(c.id)) ?? C.byName.get(String(c.name).toLowerCase())).filter(Boolean);
       pieces.push({
         key: nextId++, id: f.id, thumb: f.thumb, part: p, score: items[0]?.score ?? 0, blName: items[0]?.name,
-        alts: items.slice(1, 3).map(x => ({ id: x.id, name: x.name, score: x.score })),
+        img: items[0]?.img_url || p?.img || null,
+        alts: items.slice(1, 3).map(x => ({ id: x.id, name: x.name, score: x.score, img: x.img_url })),
         color: cols[0] ?? null, colorScore: f.raw?.colors?.[0]?.score ?? 0, suggested: cols.slice(0, 3),
         qty: 1, state: p && cols[0] ? 'todo' : 'skip', err: f.err || (!items.length ? 'No match' : !p ? 'Not on Rebrickable' : null),
       });
@@ -300,7 +301,9 @@ function colorOptions(sel, suggested = []) {
 function pieceHtml(p) {
   const unsure = p.part && (p.score < 0.75 || p.colorScore < 0.7);
   const cls = 'piece ' + (p.state === 'ok' ? 'ok' : p.state === 'skip' ? 'skip' : unsure ? 'unsure' : '');
-  const img = p.thumb ? `<img src="${p.thumb}" alt="Piece ${p.id}">` : `<img alt="">`;
+  const ref = p.img || p.part?.img;
+  const img = `<div class="pics"><figure>${p.thumb ? `<img src="${p.thumb}" alt="Your piece ${p.id}">` : '<div class="noimg">–</div>'}<figcaption>Yours</figcaption></figure>`
+    + `<figure>${ref ? `<img class="ref" src="${esc(ref)}" alt="Reference picture" loading="lazy" referrerpolicy="no-referrer">` : '<div class="noimg">No picture</div>'}<figcaption>Match</figcaption></figure></div>`;
   if (!p.part) return `<div class="${cls}" data-k="${p.key}">${img}<div>
       <div><span class="num">#${p.id}</span> <span class="meta">${esc(p.err || 'Not identified')}${p.blName ? ' · ' + esc(p.blName) : ''}</span></div>
       <div class="acts"><button type="button" data-a="part">Enter part number</button></div></div></div>`;
@@ -309,12 +312,12 @@ function pieceHtml(p) {
     <div><span class="num">#${p.id}</span> <span class="pill ${p.score >= .75 ? 'good' : ''}">${Math.round(p.score * 100)}%</span>
       <span class="meta">${esc(p.part.part_num)}</span></div>
     <div class="name">${esc(p.part.name)}</div>
-    <select data-a="color" aria-label="Colour">${colorOptions(p.color, p.suggested)}</select>
+    <div class="colrow"><span class="sw" style="background:#${p.color ? esc(p.color.rgb) : 'ccc'}" aria-hidden="true"></span><select data-a="color" aria-label="Colour">${colorOptions(p.color, p.suggested)}</select></div>
     <div class="spot">${esc(p.color ? spotText(s) : 'Pick a colour')}</div>
     <div class="acts">
       <button type="button" data-a="ok" class="${p.state === 'ok' ? 'on' : ''}" ${p.color ? '' : 'disabled'}>${p.state === 'ok' ? '✓ Accepted' : 'Accept'}</button>
       <span class="qty"><button type="button" data-a="minus" aria-label="Fewer">−</button><span>${p.qty}</span><button type="button" data-a="plus" aria-label="More">+</button></span>
-      ${p.alts.map((a, i) => `<button type="button" class="alt" data-a="alt" data-i="${i}">${esc(a.id)} ${Math.round(a.score * 100)}%</button>`).join('')}
+      ${p.alts.map((a, i) => `<button type="button" class="alt" data-a="alt" data-i="${i}">${a.img ? `<img src="${esc(a.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}${esc(a.id)} ${Math.round(a.score * 100)}%</button>`).join('')}
       <button type="button" data-a="part">Change part</button>
       <button type="button" data-a="skip">${p.state === 'skip' ? 'Skipped' : 'Skip'}</button>
     </div></div></div>`;
@@ -349,14 +352,14 @@ $('pieces').addEventListener('click', async e => {
   if (a === 'alt') {
     const alt = p.alts[+b.dataset.i]; b.disabled = true; b.textContent = '…';
     const np = await partFromBL(alt.id).catch(() => null);
-    if (np) { p.alts[+b.dataset.i] = { id: p.part.part_num, name: p.part.name, score: p.score }; p.part = np; p.score = alt.score; p.state = 'todo'; }
+    if (np) { p.alts[+b.dataset.i] = { id: p.part.part_num, name: p.part.name, score: p.score, img: p.img }; p.part = np; p.img = alt.img || np.img || null; p.score = alt.score; p.state = 'todo'; }
     else alert(`${alt.id} isn’t on Rebrickable.`);
   }
   if (a === 'part') {
     const num = prompt('Part number (Rebrickable or BrickLink):', p.part?.part_num ?? ''); if (!num) return;
     b.disabled = true; b.textContent = '…';
     const np = (await getPart(num.trim()).catch(() => null)) ?? (await partFromBL(num.trim()).catch(() => null));
-    if (np) { p.part = np; p.score = 1; p.alts = []; p.err = null; p.state = p.color ? 'todo' : 'todo'; }
+    if (np) { p.part = np; p.img = np.img || null; p.score = 1; p.alts = []; p.err = null; p.state = 'todo'; }
     else { alert(`${num} not found on Rebrickable.`); }
   }
   rerender(p);
@@ -373,7 +376,7 @@ $('mAdd').onclick = async () => {
   $('mMsg').innerHTML = '<span class="spin"></span>Looking up…';
   const p = (await getPart(num).catch(() => null)) ?? (await partFromBL(num).catch(() => null));
   if (!p) { $('mMsg').textContent = `${num} not found on Rebrickable.`; return; }
-  pieces.push({ key: nextId++, id: '+', thumb: null, part: p, score: 1, alts: [], color: c, colorScore: 1, suggested: [], qty: 1, state: 'ok' });
+  pieces.push({ key: nextId++, id: '+', thumb: null, img: p.img || null, part: p, score: 1, alts: [], color: c, colorScore: 1, suggested: [], qty: 1, state: 'ok' });
   $('missedForm').hidden = true; renderReview();
 };
 $('newScan').onclick = () => { if (pieces.some(p => p.state === 'ok') && !confirm('Discard this scan?')) return; pieces = []; lastScan = null; show('vScan'); };

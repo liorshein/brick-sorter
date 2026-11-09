@@ -48,7 +48,17 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .piece.ok{border-color:var(--ok);background:var(--ok-tint)}
 .piece.skip{opacity:.5}
 .piece.unsure{border-color:var(--warn)}
-.piece img{width:84px;height:84px;object-fit:contain;border-radius:8px;background:var(--photo)}
+.pics{display:flex;flex-direction:column;gap:6px}
+.pics figure{margin:0;text-align:center}
+.pics img,.pics .noimg{width:84px;height:84px;object-fit:contain;border-radius:8px;background:var(--photo);display:block}
+.pics img.ref{background:#FFFFFF;padding:4px}
+.pics .noimg{display:flex;align-items:center;justify-content:center;font-size:12px;color:#A3ABBA}
+.pics figcaption{font-size:11px;font-weight:600;color:var(--muted);margin-top:2px}
+.colrow{display:flex;align-items:center;gap:8px;margin-top:6px}
+.colrow select{margin-top:0}
+.sw{width:26px;height:26px;border-radius:6px;border:1.5px solid rgba(0,0,0,.25);flex:none}
+.acts button.alt{display:inline-flex;align-items:center;gap:6px}
+.acts button.alt img{width:28px;height:28px;object-fit:contain;background:#fff;border-radius:4px}
 .piece .num{font-weight:700;color:var(--pen)}
 .piece .name{font-size:15px;font-weight:600}
 .piece .meta{font-size:13px;color:var(--muted)}
