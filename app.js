@@ -80,13 +80,13 @@ const spotText = s => placeOf(s[0]) + (s[1] ? ' › ' + s[1] : '');
 const RB = 'https://rebrickable.com/api/v3';
 class HttpError extends Error { constructor(s, m) { super(m); this.status = s; } }
 let rbChain = Promise.resolve(), rbLast = 0;
-function rb(path, { method = 'GET', form, key = cfg.key } = {}) {
+function rb(path, { method = 'GET', form, json, key = cfg.key } = {}) {
   const run = async () => {
     const wait = rbLast + 1100 - Date.now(); if (wait > 0) await sleep(wait);
     rbLast = Date.now();
     const res = await fetch(path.startsWith('http') ? path : RB + path, {
-      method, headers: { Authorization: 'key ' + key, Accept: 'application/json' },
-      body: form ? new URLSearchParams(form) : undefined,
+      method, headers: { Authorization: 'key ' + key, Accept: 'application/json', ...(json ? { 'Content-Type': 'application/json' } : {}) },
+      body: json ? JSON.stringify(json) : form ? new URLSearchParams(form) : undefined,
     });
     if (res.status === 429) { rbLast = Date.now() + 4000; throw new HttpError(429, 'Rebrickable is busy, try again in a moment'); }
     if (!res.ok) throw new HttpError(res.status, `Rebrickable ${res.status}: ${(await res.text()).slice(0, 160)}`);
@@ -113,6 +113,42 @@ async function partFromBL(bl) {
   let x = d.results.find(r => r.part_num === bl) || d.results[0];
   let p = x ? { part_num: x.part_num, name: x.name, part_cat_id: x.part_cat_id, img: x.part_img_url } : await getPart(bl);
   partCache[k] = p; savePartCache(); return p;
+}
+// Look up many BrickLink ids in one call (most match Rebrickable numbers); only misses are looked up one by one.
+async function resolveBL(ids) {
+  const out = new Map(), need = [];
+  for (const id of new Set(ids)) { if (('bl:' + id) in partCache) out.set(id, partCache['bl:' + id]); else need.push(id); }
+  for (let i = 0; i < need.length; i += 100) {
+    const chunk = need.slice(i, i + 100);
+    const d = await rb(`/lego/parts/?part_nums=${chunk.map(encodeURIComponent).join(',')}&page_size=1000`);
+    for (const x of d.results) {
+      const p = { part_num: x.part_num, name: x.name, part_cat_id: x.part_cat_id, img: x.part_img_url };
+      partCache['bl:' + x.part_num] = p; partCache[x.part_num.toLowerCase()] = p; out.set(x.part_num, p);
+    }
+  }
+  savePartCache();
+  for (const id of need) if (!out.has(id)) out.set(id, await partFromBL(id).catch(() => null));
+  return out;
+}
+// Everything in the storage lists, in as few calls as possible.
+async function storageContents() {
+  const names = new Set(Object.values(SPOTS));
+  const lists = (await myLists()).filter(l => names.has(l.name));
+  const byList = new Map(lists.map(l => [l.id, []]));
+  let url = `/users/${cfg.token}/parts/?page_size=1000`, grouped = true;
+  while (url && grouped) {
+    const d = await rb(url);
+    for (const r of d.results) { if (r.list_id === undefined) { grouped = false; break; } byList.get(r.list_id)?.push(r); }
+    url = d.next;
+  }
+  if (!grouped) {
+    for (const l of lists) {
+      const rows = []; let u = `/users/${cfg.token}/partlists/${l.id}/parts/?page_size=1000`;
+      while (u) { const d = await rb(u); rows.push(...d.results); u = d.next; }
+      byList.set(l.id, rows);
+    }
+  }
+  return { lists, byList };
 }
 let COL = null;
 async function colors() {
@@ -230,21 +266,14 @@ async function invLoad() {
   if (inv) { invPrev = new Map(); for (const g of inv.groups) for (const r of g.rows) invPrev.set(r.num + '|' + r.colorId, r.qty); }
   try {
     $('invMsg').innerHTML = '<span class="spin"></span>Loading your lists from Rebrickable…';
-    const lists = (await myLists()).filter(l => SPOT_BY_LIST[l.name]);
+    const { lists, byList } = await storageContents();
     lists.sort((a, b) => ORDER.indexOf(SPOT_BY_LIST[a.name]) - ORDER.indexOf(SPOT_BY_LIST[b.name]));
-    const groups = []; let i = 0;
-    for (const l of lists) {
-      const rows = []; let url = `/users/${cfg.token}/partlists/${l.id}/parts/?page_size=1000`;
-      while (url) {
-        const d = await rb(url);
-        for (const r of d.results) rows.push({ num: r.part.part_num, name: r.part.name, img: r.part.part_img_url, colorId: r.color.id, color: r.color.name, rgb: r.color.rgb, qty: r.quantity });
-        url = d.next;
-      }
+    const groups = lists.map(l => {
+      const rows = byList.get(l.id).map(r => ({ num: r.part.part_num, name: r.part.name, img: r.part.part_img_url, colorId: r.color.id, color: r.color.name, rgb: r.color.rgb, qty: r.quantity }));
       rows.sort((a, b) => a.name.localeCompare(b.name) || a.color.localeCompare(b.color));
       const old = inv?.groups.find(g => g.key === SPOT_BY_LIST[l.name]);
-      groups.push({ key: SPOT_BY_LIST[l.name], rows, open: old?.open ?? false });
-      $('invMsg').innerHTML = `<span class="spin"></span>Loading your lists… ${++i}/${lists.length}`;
-    }
+      return { key: SPOT_BY_LIST[l.name], rows, open: old?.open ?? false };
+    });
     inv = { at: Date.now(), groups }; store.set('inv', inv);
     $('invMsg').textContent = invPrev ? 'Up to date. New or increased entries are highlighted.' : 'Up to date.';
   } catch (e) { $('invMsg').innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
@@ -306,24 +335,24 @@ $('sEmpty').onclick = async () => {
   if (!cfg.key || !cfg.token) { m.textContent = 'Do steps 1 and 2 first.'; return; }
   m.innerHTML = '<span class="spin"></span>Counting what’s in your storage lists…';
   try {
-    const names = new Set(Object.values(SPOTS));
-    const lists = (await myLists()).filter(l => names.has(l.name));
-    const items = [];
-    for (const l of lists) {
-      let url = `/users/${cfg.token}/partlists/${l.id}/parts/?page_size=1000`;
-      while (url) { const d = await rb(url); for (const r of d.results) items.push({ l, part: r.part.part_num, color: r.color.id, qty: r.quantity }); url = d.next; }
-    }
-    if (!items.length) { m.innerHTML = '<span class="ok-t">Your storage lists are already empty.</span>'; return; }
-    const total = items.reduce((n, x) => n + x.qty, 0);
-    if (!confirm(`Remove all ${total} pieces (${items.length} entries) from your ${lists.length} storage lists?\n\nThis can’t be undone. The lists themselves stay, and your other Rebrickable lists and sets aren’t touched.`)) { m.textContent = 'Nothing changed.'; return; }
+    const { lists, byList } = await storageContents();
+    const used = lists.filter(l => byList.get(l.id).length);
+    if (!used.length) { m.innerHTML = '<span class="ok-t">Your storage lists are already empty.</span>'; return; }
+    const entries = used.reduce((n, l) => n + byList.get(l.id).length, 0);
+    const total = used.reduce((n, l) => n + byList.get(l.id).reduce((a, r) => a + r.quantity, 0), 0);
+    if (!confirm(`Remove all ${total} pieces (${entries} entries) from your storage lists?\n\nThis can’t be undone. Your other Rebrickable lists and sets aren’t touched.`)) { m.textContent = 'Nothing changed.'; return; }
     let i = 0, fail = 0;
-    for (const x of items) {
-      try { await rb(`/users/${cfg.token}/partlists/${x.l.id}/parts/${encodeURIComponent(x.part)}/${x.color}/`, { method: 'DELETE' }); }
-      catch (e) { if (e.status !== 404) fail++; }
-      m.innerHTML = `<span class="spin"></span>Removing… ${++i}/${items.length}`;
+    for (const l of used) {
+      // Emptying a list = deleting it and creating it again under the same name: 2 calls instead of one per part.
+      try {
+        await rb(`/users/${cfg.token}/partlists/${l.id}/`, { method: 'DELETE' });
+        await rb(`/users/${cfg.token}/partlists/`, { method: 'POST', form: { name: l.name, is_buildable: String(l.is_buildable ?? true) } });
+      } catch (e) { fail++; }
+      m.innerHTML = `<span class="spin"></span>Emptying… ${++i}/${used.length} lists`;
     }
-    if (fail) { m.innerHTML = `<span class="bad-t">${items.length - fail} removed, ${fail} failed. Tap again to retry the rest.</span>`; return; }
-    m.innerHTML = `<span class="ok-t">Done. All ${lists.length} storage lists are empty.</span>`;
+    store.set('inv', null); inv = null;
+    if (fail) { m.innerHTML = `<span class="bad-t">${fail} list(s) failed. Tap “Check / create lists” above, then try again.</span>`; return; }
+    m.innerHTML = `<span class="ok-t">Done. All storage lists are empty.</span>`;
     if (confirm('Also clear the scan history on this phone, so you start completely fresh?')) {
       for (const sc of await idb.all().catch(() => [])) await idb.del(sc.id).catch(() => {});
       resetScan(); m.innerHTML += '<br><span class="ok-t">Scan history cleared too.</span>';
@@ -425,11 +454,11 @@ async function scanFile(file) {
     await Promise.all([worker(), worker(), worker()]);
     found.sort((a, b) => a.id - b.id);
 
-    let n = 0;
+    setMsg('<span class="spin"></span>Matching Rebrickable numbers…', 0.8);
+    const partMap = await resolveBL(found.flatMap(f => f.raw?.items?.[0] ? [f.raw.items[0].id] : [])).catch(() => new Map());
     for (const f of found) {
-      n++; setMsg(`<span class="spin"></span>Matching Rebrickable numbers… ${n}/${found.length}`, 0.7 + 0.3 * n / found.length);
       const items = f.raw?.items ?? [];
-      const p = items[0] ? await partFromBL(items[0].id).catch(() => null) : null;
+      const p = items[0] ? (partMap.get(items[0].id) ?? null) : null;
       const cols = (f.raw?.colors ?? []).map(c => C.byBL.get(String(c.id)) ?? C.byName.get(String(c.name).toLowerCase())).filter(Boolean);
       pieces.push({
         key: nextId++, id: f.id, thumb: f.thumb, part: p, score: items[0]?.score ?? 0, blName: items[0]?.name,
@@ -596,15 +625,34 @@ $('addAll').onclick = async () => {
   const bar = $('addBar'); bar.hidden = false;
   const line = (cls, t) => { log.innerHTML += `<div class="${cls}">${esc(t)}</div>`; log.scrollTop = log.scrollHeight; };
   try {
-    const lists = await myLists(); let i = 0, ok = 0;
+    const { lists, byList } = await storageContents(); let ok = 0, step = 0;
+    const done1 = (x, now) => { ok++; if (scanMeta) scanMeta.addedKeys.push(keyOf(x)); line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now && now != x.qty ? ` (now ${now})` : ''}`); };
+    const fail1 = (x, msg) => line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${msg}`);
+    const targets = new Map();
     for (const x of items) {
       const list = lists.find(l => l.name === SPOTS[x.spot[0]]);
-      try {
-        if (!list) throw new Error(`list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`);
-        const now = await addToList(list, x.part.part_num, x.color.id, x.qty);
-        ok++; if (scanMeta) { scanMeta.addedKeys.push(keyOf(x)); saveScan(true); } line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now != x.qty ? ` (now ${now})` : ''}`);
-      } catch (e) { line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${e.message}`); }
-      bar.firstElementChild.style.width = Math.round(++i / items.length * 100) + '%';
+      if (!list) { fail1(x, `list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`); continue; }
+      if (!targets.has(list.id)) targets.set(list.id, { list, xs: [] });
+      targets.get(list.id).xs.push(x);
+    }
+    for (const { list, xs } of targets.values()) {
+      const have = new Map(byList.get(list.id).map(r => [`${r.part.part_num}|${r.color.id}`, r.quantity]));
+      const fresh = xs.filter(x => !have.has(keyOf(x))), more = xs.filter(x => have.has(keyOf(x)));
+      if (fresh.length) {
+        try {
+          const res = await rb(`/users/${cfg.token}/partlists/${list.id}/parts/`, { method: 'POST', json: fresh.map(x => ({ part_num: x.part.part_num, color_id: x.color.id, quantity: x.qty })) });
+          const arr = Array.isArray(res) ? res : res ? [res] : [];
+          const got = new Set(arr.map(r => `${r.part?.part_num ?? r.part_num}|${r.color?.id ?? r.color_id}`));
+          const trustAll = !fresh.some(x => got.has(keyOf(x))) && arr.length === fresh.length;
+          for (const x of fresh) (trustAll || got.has(keyOf(x))) ? done1(x) : fail1(x, 'Rebrickable didn’t accept this part/colour');
+        } catch (e) { for (const x of fresh) fail1(x, e.message); }
+      }
+      for (const x of more) {
+        try { const total = have.get(keyOf(x)) + x.qty; await rb(`/users/${cfg.token}/partlists/${list.id}/parts/${encodeURIComponent(x.part.part_num)}/${x.color.id}/`, { method: 'PUT', form: { quantity: total } }); done1(x, total); }
+        catch (e) { fail1(x, e.message); }
+      }
+      saveScan(true);
+      bar.firstElementChild.style.width = Math.round(++step / targets.size * 100) + '%';
     }
     line('', ok === items.length ? 'All added.' : `${ok} of ${items.length} added.`);
     if (ok === items.length && scanMeta) { scanMeta.added = true; scanMeta.addedAt = Date.now(); saveScan(true); }
