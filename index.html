@@ -85,12 +85,17 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .layout h3{font-size:14px;margin:14px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .layout ul{margin:0;padding-left:1.1em}
 .layout li{margin-bottom:6px;font-size:15px}
+.hbtns{display:flex;gap:8px}
+.resume{border-color:var(--warn);background:var(--warn-tint)}
+.added-note{background:var(--ok-tint);color:var(--ok);font-weight:600;border-radius:10px;padding:10px 12px;margin:0 0 12px}
+.hist{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+.hist img{width:96px;height:96px;object-fit:cover;border-radius:8px;background:var(--photo)}
 [hidden]{display:none !important}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
 </style>
 </head>
 <body>
-<header><h1>Brick Sorter</h1><button id="navSettings" type="button">Settings</button></header>
+<header><h1>Brick Sorter</h1><div class="hbtns"><button id="navHistory" type="button">History</button><button id="navSettings" type="button">Settings</button></div></header>
 <main>
 
 <!-- SETTINGS -->
@@ -121,6 +126,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 
 <!-- SCAN -->
 <section id="vScan" hidden>
+  <div class="card resume" id="resume" hidden>
+    <p id="resumeText"></p>
+    <button class="btn block" id="resumeOpen" type="button">Open it</button>
+  </div>
   <div class="card">
     <h2>Scan a pile</h2>
     <p class="muted">10–25 pieces, a finger’s width apart, on plain matte paper that contrasts with them. Shoot from straight above.</p>
@@ -153,6 +162,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 
 <!-- REVIEW -->
 <section id="vReview" hidden>
+  <p class="added-note" id="addedNote" hidden></p>
   <div class="card">
     <canvas id="annot" aria-label="Your photo with numbered pieces"></canvas>
     <ul class="tips muted" id="tips"></ul>
@@ -192,8 +202,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
   </div></div>
 </section>
 
+<!-- HISTORY -->
+<section id="vHistory" hidden>
+  <div class="card"><h2>Scan history</h2><p class="muted">Every scan is saved on this phone automatically, so nothing is lost if you leave before adding to Rebrickable.</p></div>
+  <div id="histList"></div>
+  <div class="sticky"><div class="inner"><button class="btn ghost" id="histBack" type="button">← Back</button></div></div>
+</section>
+
 </main>
-<script src="scan-core.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="scan-core.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

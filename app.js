@@ -11,6 +11,26 @@ const store = {
   set(k, v) { try { localStorage.setItem('bs:' + k, JSON.stringify(v)); } catch { /* storage full or blocked */ } },
 };
 let cfg = store.get('cfg', { key: '', token: '' });
+
+/* scan history (IndexedDB, on this phone only) */
+const idb = (() => {
+  let dbp = null;
+  const open = () => dbp ??= new Promise((res, rej) => {
+    const r = indexedDB.open('brick-sorter', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('scans', { keyPath: 'id' });
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  const tx = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('scans', mode); const req = fn(t.objectStore('scans'));
+      t.oncomplete = () => res(req?.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  };
+  return { put: v => tx('readwrite', st => st.put(v)), get: id => tx('readonly', st => st.get(id)),
+    all: () => tx('readonly', st => st.getAll()), del: id => tx('readwrite', st => st.delete(id)) };
+})();
+const KEEP_SCANS = 40;
 const saveCfg = () => store.set('cfg', cfg);
 
 /* ---------- storage rules (same as the sorting map) ---------- */
@@ -138,8 +158,49 @@ async function brickognize(blob, tries = 4) {
 }
 
 /* ---------- views ---------- */
-const views = ['vSettings', 'vScan', 'vReview', 'vSummary'];
-function show(v) { views.forEach(x => $(x).hidden = x !== v); window.scrollTo(0, 0); }
+const views = ['vSettings', 'vScan', 'vReview', 'vSummary', 'vHistory'];
+function show(v) { views.forEach(x => $(x).hidden = x !== v); window.scrollTo(0, 0); if (v === 'vScan') checkResume(); }
+const accepted = sc => sc.pieces.filter(p => p.state === 'ok').reduce((n, p) => n + p.qty, 0);
+async function checkResume() {
+  const box = $('resume'); box.hidden = true;
+  const all = (await idb.all().catch(() => [])).filter(sc => !sc.added && sc.pieces?.length).sort((a, b) => b.at - a.at);
+  if (!all.length) return;
+  const sc = all[0];
+  $('resumeText').textContent = `${all.length === 1 ? 'A scan' : all.length + ' scans'} not added to Rebrickable yet. Latest: ${new Date(sc.at).toLocaleString()}, ${sc.pieces.length} pieces, ${accepted(sc)} accepted.`;
+  $('resumeOpen').onclick = () => openScan(sc.id);
+  box.hidden = false;
+}
+async function openScan(id) {
+  const sc = await idb.get(id); if (!sc) return;
+  await colors().catch(() => {});
+  const img = new Image(); img.src = sc.photo; await img.decode().catch(() => {});
+  pieces = sc.pieces; nextId = sc.nextId || pieces.length + 1;
+  const { pieces: _p, nextId: _n, ...meta } = sc; scanMeta = meta;
+  lastScan = { src: img, rects: sc.rects, tips: sc.tips };
+  renderReview(); show('vReview');
+}
+async function showHistory() {
+  saveScan(true);
+  const all = (await idb.all().catch(() => [])).sort((a, b) => b.at - a.at);
+  $('histList').innerHTML = all.length ? all.map(sc => `<div class="hist" data-id="${esc(sc.id)}">
+      <img src="${sc.photo}" alt="">
+      <div><b>${esc(new Date(sc.at).toLocaleString())}</b>
+        <div class="muted">${sc.pieces.length} pieces · ${accepted(sc)} accepted</div>
+        <span class="pill ${sc.added ? 'good' : ''}">${sc.added ? 'Added to Rebrickable' : 'Not added yet'}</span>
+        <div class="acts"><button type="button" data-a="open">Open</button><button type="button" data-a="del">Delete</button></div></div></div>`).join('')
+    : '<p class="muted">No scans yet. Every scan is saved here automatically.</p>';
+  show('vHistory');
+}
+$('navHistory').onclick = showHistory;
+$('histList').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const id = b.closest('[data-id]').dataset.id;
+  if (b.dataset.a === 'open') return openScan(id);
+  if (b.dataset.a === 'del' && confirm('Delete this scan from history? Anything already added stays in Rebrickable.')) {
+    await idb.del(id).catch(() => {}); if (scanMeta?.id === id) resetScan(); showHistory();
+  }
+});
+$('histBack').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
 $('navSettings').onclick = () => { fillSettings(); show('vSettings'); };
 $('sDone').onclick = () => show(cfg.key && cfg.token ? (pieces.length ? 'vReview' : 'vScan') : 'vSettings');
 
@@ -183,7 +244,19 @@ $('sLists').onclick = async () => {
 };
 
 /* ---------- scan ---------- */
-let pieces = [], nextId = 1, lastScan = null;
+let pieces = [], nextId = 1, lastScan = null, scanMeta = null, saveT = null;
+function saveScan(now) {
+  if (!scanMeta) return;
+  const write = () => idb.put({ ...scanMeta, pieces, nextId }).catch(e => console.warn('save failed', e));
+  clearTimeout(saveT);
+  if (now) return write();
+  saveT = setTimeout(write, 300);
+}
+async function pruneScans() {
+  const all = (await idb.all().catch(() => [])).sort((a, b) => b.at - a.at);
+  for (const old of all.slice(KEEP_SCANS)) if (old.added) await idb.del(old.id).catch(() => {});
+}
+function resetScan() { pieces = []; lastScan = null; scanMeta = null; }
 const WORK_MAX = 2400, DET_MAX = 1024, CROP_MAX = 800, MIN_CROP = 24, PAD = 0.08, MAX_REGIONS = 30;
 
 function drawTo(bitmap, max) {
@@ -238,7 +311,12 @@ async function scanFile(file) {
     const cropRects = boxes.map(b => Scan.expandRect(Scan.percentToPixels(b, W), PAD, W));
     const plan = boxes.length > 1 ? Scan.planIsolation(seg, boxes, cropRects.map(r => Scan.pixelsToPercent(r, W)), Scan.findDuplicateBoxes(boxes)) : null;
     const tips = Scan.photoTips(seg);
-    lastScan = { workC, rects: cropRects, tips, uniform: seg.backgroundUniform };
+    lastScan = { src: workC, rects: cropRects, tips };
+    const photoC = drawTo(workC, 1200), k = photoC.width / workC.width;
+    scanMeta = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(),
+      photo: photoC.toDataURL('image/jpeg', 0.75), rects: cropRects.map(r => ({ left: r.left * k, top: r.top * k, width: r.width * k, height: r.height * k })),
+      tips, added: false, addedKeys: [] };
+    pieces = []; nextId = 1;
 
     const C = await colors();
     const found = []; let done = 0;
@@ -274,7 +352,7 @@ async function scanFile(file) {
       });
     }
     setMsg('');
-    renderReview(); show('vReview');
+    renderReview(); saveScan(true); pruneScans(); show('vReview');
   } catch (e) {
     console.error(e); setMsg(`<span class="bad-t">${esc(e.message || 'Something went wrong')}</span>`);
   } finally { $('cam').value = ''; $('gal').value = ''; }
@@ -286,8 +364,8 @@ $('gal').onchange = () => scanFile($('gal').files[0]);
 function drawAnnotated() {
   const cv = $('annot'); if (!lastScan) { cv.hidden = true; return; }
   cv.hidden = false;
-  const src = lastScan.workC, s = Math.min(1, 1200 / Math.max(src.width, src.height));
-  cv.width = Math.round(src.width * s); cv.height = Math.round(src.height * s);
+  const src = lastScan.src, SW = src.naturalWidth || src.width, SH = src.naturalHeight || src.height, s = Math.min(1, 1200 / Math.max(SW, SH));
+  cv.width = Math.round(SW * s); cv.height = Math.round(SH * s);
   const g = cv.getContext('2d'); g.drawImage(src, 0, 0, cv.width, cv.height);
   const fs = Math.max(16, Math.round(cv.width / 32));
   g.font = `700 ${fs}px system-ui, sans-serif`; g.lineWidth = Math.max(2, fs / 7);
@@ -336,12 +414,14 @@ function pieceHtml(p) {
 function renderReview() {
   drawAnnotated();
   $('pieces').innerHTML = pieces.map(pieceHtml).join('');
-  updateCount();
+  updateCount(); saveScan();
+  $('addedNote').hidden = !scanMeta?.added;
+  if (scanMeta?.added) $('addedNote').textContent = `Added to Rebrickable on ${new Date(scanMeta.addedAt).toLocaleString()}.`;
 }
 function rerender(p) {
   const el = $('pieces').querySelector(`[data-k="${p.key}"]`);
   if (el) el.outerHTML = pieceHtml(p);
-  drawAnnotated(); updateCount();
+  drawAnnotated(); updateCount(); saveScan();
 }
 function updateCount() {
   const n = pieces.filter(p => p.state === 'ok').reduce((s, p) => s + p.qty, 0);
@@ -390,7 +470,7 @@ $('mAdd').onclick = async () => {
   pieces.push({ key: nextId++, id: '+', thumb: null, img: p.img || null, part: p, score: 1, alts: [], color: c, colorScore: 1, suggested: [], qty: 1, state: 'ok' });
   $('missedForm').hidden = true; renderReview();
 };
-$('newScan').onclick = () => { if (pieces.some(p => p.state === 'ok') && !confirm('Discard this scan?')) return; pieces = []; lastScan = null; show('vScan'); };
+$('newScan').onclick = () => { saveScan(true); resetScan(); show('vScan'); };
 
 /* ---------- summary & add ---------- */
 function merged() {
@@ -414,9 +494,16 @@ $('toSummary').onclick = () => {
   show('vSummary');
 };
 $('backReview').onclick = () => show('vReview');
-$('doneScan').onclick = () => { pieces = []; lastScan = null; show('vScan'); };
+$('doneScan').onclick = () => { saveScan(true); resetScan(); show('vScan'); };
 $('addAll').onclick = async () => {
-  const items = merged(); if (!items.length) return;
+  let items = merged(); if (!items.length) return;
+  const keyOf = x => `${x.part.part_num}|${x.color.id}`;
+  const done = new Set(scanMeta?.addedKeys || []);
+  if (items.every(x => done.has(keyOf(x)))) {
+    if (!confirm('Everything here was already added to Rebrickable. Add it all again?')) return;
+    done.clear(); if (scanMeta) scanMeta.addedKeys = [];
+  }
+  items = items.filter(x => !done.has(keyOf(x)));
   $('addAll').disabled = true; const log = $('addLog'); log.hidden = false; log.innerHTML = '';
   const bar = $('addBar'); bar.hidden = false;
   const line = (cls, t) => { log.innerHTML += `<div class="${cls}">${esc(t)}</div>`; log.scrollTop = log.scrollHeight; };
@@ -427,12 +514,12 @@ $('addAll').onclick = async () => {
       try {
         if (!list) throw new Error(`list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`);
         const now = await addToList(list, x.part.part_num, x.color.id, x.qty);
-        ok++; line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now != x.qty ? ` (now ${now})` : ''}`);
+        ok++; if (scanMeta) { scanMeta.addedKeys.push(keyOf(x)); saveScan(true); } line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now != x.qty ? ` (now ${now})` : ''}`);
       } catch (e) { line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${e.message}`); }
       bar.firstElementChild.style.width = Math.round(++i / items.length * 100) + '%';
     }
     line('', ok === items.length ? 'All added.' : `${ok} of ${items.length} added.`);
-    if (ok === items.length) pieces = pieces.filter(p => p.state !== 'ok');
+    if (ok === items.length && scanMeta) { scanMeta.added = true; scanMeta.addedAt = Date.now(); saveScan(true); }
   } catch (e) { line('bad-t', e.message); $('addAll').disabled = false; }
 };
 
