@@ -158,7 +158,7 @@ async function brickognize(blob, tries = 4) {
 }
 
 /* ---------- views ---------- */
-const views = ['vSettings', 'vScan', 'vReview', 'vSummary', 'vHistory'];
+const views = ['vSettings', 'vScan', 'vReview', 'vSummary', 'vHistory', 'vInventory'];
 function show(v) { views.forEach(x => $(x).hidden = x !== v); window.scrollTo(0, 0); if (v === 'vScan') checkResume(); }
 const accepted = sc => sc.pieces.filter(p => p.state === 'ok').reduce((n, p) => n + p.qty, 0);
 async function checkResume() {
@@ -201,6 +201,64 @@ $('histList').addEventListener('click', async e => {
   }
 });
 $('histBack').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
+
+/* ---------- live inventory from Rebrickable ---------- */
+const SPOT_BY_LIST = Object.fromEntries(Object.entries(SPOTS).map(([k, n]) => [n, k]));
+let inv = store.get('inv', null), invLoading = false, invPrev = null;
+function invRender() {
+  const q = $('invSearch').value.trim().toLowerCase();
+  const el = $('invGroups');
+  if (!inv) { el.innerHTML = '<p class="muted">Nothing loaded yet.</p>'; $('invStats').textContent = ''; return; }
+  let total = 0, entries = 0;
+  for (const g of inv.groups) for (const r of g.rows) { total += r.qty; entries++; }
+  $('invStats').innerHTML = `<b>${total}</b> pieces · ${entries} part/colour entries · updated ${esc(new Date(inv.at).toLocaleTimeString())}`;
+  const match = r => !q || r.num.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.color.toLowerCase().includes(q);
+  el.innerHTML = inv.groups.map(g => {
+    const rows = g.rows.filter(match); if (q && !rows.length) return '';
+    const n = g.rows.reduce((a, r) => a + r.qty, 0);
+    return `<details class="invg" ${q || g.open ? 'open' : ''} data-k="${g.key}"><summary><span>${esc(placeOf(g.key))}</span><span class="pill ${n ? 'good' : 'zero'}">${n}</span></summary>
+      ${rows.length ? rows.map(r => `<div class="invr${invPrev && (invPrev.get(r.num + '|' + r.colorId) ?? 0) < r.qty ? ' new' : ''}">
+        ${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="noimg"></span>'}
+        <div><b>${esc(r.name)}</b><div class="meta"><span class="dot" style="background:#${esc(r.rgb)}"></span>${esc(r.color)} · ${esc(r.num)}</div></div>
+        <span class="q">×${r.qty}</span></div>`).join('') : '<p class="muted">Empty.</p>'}</details>`;
+  }).join('');
+}
+async function invLoad() {
+  if (invLoading) return;
+  if (!cfg.key || !cfg.token) { $('invMsg').textContent = 'Set up your key and sign-in in Settings first.'; return; }
+  invLoading = true; $('invRefresh').disabled = true;
+  if (inv) { invPrev = new Map(); for (const g of inv.groups) for (const r of g.rows) invPrev.set(r.num + '|' + r.colorId, r.qty); }
+  try {
+    $('invMsg').innerHTML = '<span class="spin"></span>Loading your lists from Rebrickable…';
+    const lists = (await myLists()).filter(l => SPOT_BY_LIST[l.name]);
+    lists.sort((a, b) => ORDER.indexOf(SPOT_BY_LIST[a.name]) - ORDER.indexOf(SPOT_BY_LIST[b.name]));
+    const groups = []; let i = 0;
+    for (const l of lists) {
+      const rows = []; let url = `/users/${cfg.token}/partlists/${l.id}/parts/?page_size=1000`;
+      while (url) {
+        const d = await rb(url);
+        for (const r of d.results) rows.push({ num: r.part.part_num, name: r.part.name, img: r.part.part_img_url, colorId: r.color.id, color: r.color.name, rgb: r.color.rgb, qty: r.quantity });
+        url = d.next;
+      }
+      rows.sort((a, b) => a.name.localeCompare(b.name) || a.color.localeCompare(b.color));
+      const old = inv?.groups.find(g => g.key === SPOT_BY_LIST[l.name]);
+      groups.push({ key: SPOT_BY_LIST[l.name], rows, open: old?.open ?? false });
+      $('invMsg').innerHTML = `<span class="spin"></span>Loading your lists… ${++i}/${lists.length}`;
+    }
+    inv = { at: Date.now(), groups }; store.set('inv', inv);
+    $('invMsg').textContent = invPrev ? 'Up to date. New or increased entries are highlighted.' : 'Up to date.';
+  } catch (e) { $('invMsg').innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
+  finally { invLoading = false; $('invRefresh').disabled = false; invRender(); }
+}
+$('navInventory').onclick = () => { invRender(); show('vInventory'); invLoad(); };
+$('invRefresh').onclick = invLoad;
+$('invSearch').addEventListener('input', invRender);
+$('invGroups').addEventListener('toggle', e => {
+  const d = e.target.closest?.('details[data-k]'); if (!d || !inv || $('invSearch').value) return;
+  const g = inv.groups.find(x => x.key === d.dataset.k); if (g) { g.open = d.open; store.set('inv', inv); }
+}, true);
+$('invBack').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('vInventory').hidden) invLoad(); });
 $('navSettings').onclick = () => { fillSettings(); show('vSettings'); };
 $('sDone').onclick = () => show(cfg.key && cfg.token ? (pieces.length ? 'vReview' : 'vScan') : 'vSettings');
 
