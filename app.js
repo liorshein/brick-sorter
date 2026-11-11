@@ -243,6 +243,36 @@ $('sLists').onclick = async () => {
   } catch (e) { m.innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
 };
 
+$('sEmpty').onclick = async () => {
+  const m = $('sEmptyMsg');
+  if (!cfg.key || !cfg.token) { m.textContent = 'Do steps 1 and 2 first.'; return; }
+  m.innerHTML = '<span class="spin"></span>Counting what’s in your storage lists…';
+  try {
+    const names = new Set(Object.values(SPOTS));
+    const lists = (await myLists()).filter(l => names.has(l.name));
+    const items = [];
+    for (const l of lists) {
+      let url = `/users/${cfg.token}/partlists/${l.id}/parts/?page_size=1000`;
+      while (url) { const d = await rb(url); for (const r of d.results) items.push({ l, part: r.part.part_num, color: r.color.id, qty: r.quantity }); url = d.next; }
+    }
+    if (!items.length) { m.innerHTML = '<span class="ok-t">Your storage lists are already empty.</span>'; return; }
+    const total = items.reduce((n, x) => n + x.qty, 0);
+    if (!confirm(`Remove all ${total} pieces (${items.length} entries) from your ${lists.length} storage lists?\n\nThis can’t be undone. The lists themselves stay, and your other Rebrickable lists and sets aren’t touched.`)) { m.textContent = 'Nothing changed.'; return; }
+    let i = 0, fail = 0;
+    for (const x of items) {
+      try { await rb(`/users/${cfg.token}/partlists/${x.l.id}/parts/${encodeURIComponent(x.part)}/${x.color}/`, { method: 'DELETE' }); }
+      catch (e) { if (e.status !== 404) fail++; }
+      m.innerHTML = `<span class="spin"></span>Removing… ${++i}/${items.length}`;
+    }
+    if (fail) { m.innerHTML = `<span class="bad-t">${items.length - fail} removed, ${fail} failed. Tap again to retry the rest.</span>`; return; }
+    m.innerHTML = `<span class="ok-t">Done. All ${lists.length} storage lists are empty.</span>`;
+    if (confirm('Also clear the scan history on this phone, so you start completely fresh?')) {
+      for (const sc of await idb.all().catch(() => [])) await idb.del(sc.id).catch(() => {});
+      resetScan(); m.innerHTML += '<br><span class="ok-t">Scan history cleared too.</span>';
+    }
+  } catch (e) { m.innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
+};
+
 /* ---------- scan ---------- */
 let pieces = [], nextId = 1, lastScan = null, scanMeta = null, saveT = null;
 function saveScan(now) {

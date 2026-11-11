@@ -90,6 +90,7 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .added-note{background:var(--ok-tint);color:var(--ok);font-weight:600;border-radius:10px;padding:10px 12px;margin:0 0 12px}
 .hist{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
 .hist img{width:96px;height:96px;object-fit:cover;border-radius:8px;background:var(--photo)}
+.btn.danger{border-color:var(--warn);color:var(--warn)}
 [hidden]{display:none !important}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
 </style>
@@ -120,6 +121,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <p class="muted">One Rebrickable part list per drawer or slot. Safe to run again.</p>
     <button class="btn ghost block" id="sLists" type="button">Check / create lists</button>
     <div class="status" id="sListsMsg"></div>
+  </div>
+  <div class="card">
+    <h2>Start over</h2>
+    <p class="muted">Removes every piece from your 18 storage lists so you can re-scan from scratch. The lists stay, and your other Rebrickable lists and sets aren’t touched.</p>
+    <button class="btn ghost block danger" id="sEmpty" type="button">Empty storage lists</button>
+    <div class="status" id="sEmptyMsg"></div>
   </div>
   <button class="btn block" id="sDone" type="button">Done</button>
 </section>
@@ -210,7 +217,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 </section>
 
 </main>
-<script src="scan-core.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="scan-core.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
