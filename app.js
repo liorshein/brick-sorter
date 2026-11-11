@@ -43,7 +43,18 @@ function spotFor(num, name, cat) {
   return r;
 }
 const spotOf = (p, c) => c?.is_trans ? ['trans', null] : spotFor(p.part_num, p.name, p.part_cat_id);
-const spotText = s => SPOTS[s[0]] + (s[1] ? ' › ' + s[1] : '');
+// Physical places (Rebrickable list names above stay as they are).
+const TOWER = ['bricks', 'plates', 'tiles', 'slopes', 'technic', 'round'];
+const SHORT = { bricks: 'Bricks', plates: 'Plates', tiles: 'Tiles', slopes: 'Slopes / Wedges', technic: 'Technic & Misc', round: 'Round & SNOT',
+  trans: 'Transparent', minifigs: 'Minifigs', acc: 'Minifig accessories', identify: 'To identify', plants: 'Plants & animals', wheels: 'Wheels & tires',
+  doors: 'Doors, windows & fences', bars: 'Bars, handles & ladders', arches: 'Arches & curves', modplates: 'Modified plates', modbricks: 'Modified bricks', overflow: 'Large parts' };
+function placeOf(k) {
+  const i = TOWER.indexOf(k);
+  if (i >= 0) return `Drawer ${i + 1} · ${SHORT[k]}`;
+  if (k === 'overflow') return 'Classic 10695 box · Large parts';
+  return `12-slot box · ${SHORT[k]}`;
+}
+const spotText = s => placeOf(s[0]) + (s[1] ? ' › ' + s[1] : '');
 
 /* ---------- Rebrickable (rate limited to ~1 call/s) ---------- */
 const RB = 'https://rebrickable.com/api/v3';
@@ -396,7 +407,7 @@ $('toSummary').onclick = () => {
   const items = merged(), by = new Map();
   for (const x of items) { if (!by.has(x.spot[0])) by.set(x.spot[0], []); by.get(x.spot[0]).push(x); }
   $('groups').innerHTML = [...by.keys()].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)).map(k =>
-    `<div class="group"><b>${esc(SPOTS[k])}</b>${by.get(k).map(x => `<div>${x.qty}× ${esc(x.part.name)} · ${esc(x.color.name)}${x.spot[1] ? ` · ${esc(x.spot[1])}` : ''}</div>`).join('')}</div>`).join('');
+    `<div class="group"><b>${esc(placeOf(k))}</b>${by.get(k).map(x => `<div>${x.qty}× ${esc(x.part.name)} · ${esc(x.color.name)}${x.spot[1] ? ` · ${esc(x.spot[1])}` : ''}</div>`).join('')}</div>`).join('');
   const total = items.reduce((s, x) => s + x.qty, 0);
   $('addAll').textContent = `Add ${total} pieces to Rebrickable`; $('addAll').disabled = false;
   $('addLog').hidden = true; $('addBar').hidden = true;
@@ -416,7 +427,7 @@ $('addAll').onclick = async () => {
       try {
         if (!list) throw new Error(`list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`);
         const now = await addToList(list, x.part.part_num, x.color.id, x.qty);
-        ok++; line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${list.name}${now != x.qty ? ` (now ${now})` : ''}`);
+        ok++; line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now != x.qty ? ` (now ${now})` : ''}`);
       } catch (e) { line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${e.message}`); }
       bar.firstElementChild.style.width = Math.round(++i / items.length * 100) + '%';
     }

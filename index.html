@@ -81,6 +81,10 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .ok-t{color:var(--ok)} .bad-t{color:var(--warn)}
 .pill{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--warn-tint);color:var(--warn)}
 .pill.good{background:var(--ok-tint);color:var(--ok)}
+.layout summary{font-weight:700;font-size:16px;cursor:pointer;min-height:28px}
+.layout h3{font-size:14px;margin:14px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.layout ul{margin:0;padding-left:1.1em}
+.layout li{margin-bottom:6px;font-size:15px}
 [hidden]{display:none !important}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
 </style>
@@ -127,6 +131,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <div class="status" id="scanMsg" aria-live="polite"></div>
     <div class="bar" id="scanBar" hidden><i></i></div>
   </div>
+  <details class="card layout">
+    <summary>Your storage layout</summary>
+    <h3>Storage</h3>
+    <ul>
+      <li><b>Drawer tower</b>, top to bottom: 1 Bricks · 2 Plates · 3 Tiles · 4 Slopes / Wedges · 5 Technic &amp; Misc · 6 Round &amp; SNOT</li>
+      <li><b>Clear 12-slot box</b> (blue handle): Transparent · Minifigs · Minifig accessories · To identify · Plants &amp; animals · Wheels &amp; tires · Doors, windows &amp; fences · Bars, handles &amp; ladders · Arches &amp; curves · Modified plates · Modified bricks · Spare</li>
+      <li><b>Red-handled box</b>: overflow when a drawer is full</li>
+      <li><b>Classic 10695 box</b>: baseplates and large parts</li>
+      <li><b>Yellow Classic 10698 box</b>: identified sets with their instructions</li>
+    </ul>
+    <h3>Workflow</h3>
+    <ul>
+      <li><b>Red bag</b>: the raw lot</li>
+      <li><b>Purple-clip box</b>: inbox, the next batch to work through</li>
+      <li><b>Fruit container</b>: scan queue</li>
+      <li><b>Yellow tray</b>: scanning and sorting station</li>
+    </ul>
+  </details>
 </section>
 
 <!-- REVIEW -->
@@ -171,7 +193,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 </section>
 
 </main>
-<script src="scan-core.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="scan-core.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
