@@ -522,34 +522,68 @@ function pieceHtml(p) {
     <div class="spot">${esc(p.color ? spotText(s) : 'Pick a colour')}</div>
     <div class="acts">
       <button type="button" data-a="ok" class="${p.state === 'ok' ? 'on' : ''}" ${p.color ? '' : 'disabled'}>${p.state === 'ok' ? '✓ Accepted' : 'Accept'}</button>
-      <span class="qty"><button type="button" data-a="minus" aria-label="Fewer">−</button><span>${p.qty}</span><button type="button" data-a="plus" aria-label="More">+</button></span>
+      <span class="qty"><button type="button" data-a="minus" aria-label="Fewer">−</button><input type="number" inputmode="numeric" min="1" max="9999" value="${p.qty}" data-a="qty" aria-label="Quantity"><button type="button" data-a="plus" aria-label="More">+</button></span>
       ${p.alts.map((a, i) => `<button type="button" class="alt" data-a="alt" data-i="${i}">${a.img ? `<img src="${esc(a.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}${esc(a.id)} ${Math.round(a.score * 100)}%</button>`).join('')}
       <button type="button" data-a="part">Change part</button>
       <button type="button" data-a="skip">${p.state === 'skip' ? 'Skipped' : 'Skip'}</button>
     </div></div></div>`;
 }
+let groupMode = store.get('groupMode', 'place');
+const groupOf = p => p.part ? spotOf(p.part, p.color)[0] : '_none';
 function renderReview() {
   drawAnnotated();
-  $('pieces').innerHTML = pieces.map(pieceHtml).join('');
-  updateCount(); saveScan();
+  document.querySelectorAll('#groupMode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === groupMode)));
+  if (groupMode === 'photo') $('pieces').innerHTML = pieces.map(pieceHtml).join('');
+  else {
+    const groups = new Map();
+    for (const p of pieces) { const k = groupOf(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+    const keys = [...groups.keys()].sort((a, b) => (a === '_none') - (b === '_none') || ORDER.indexOf(a) - ORDER.indexOf(b));
+    $('pieces').innerHTML = keys.map(k => `<section class="rgroup" data-g="${k}">
+      <div class="rghead"><div><b>${k === '_none' ? 'Needs a part number' : esc(placeOf(k))}</b><span class="rgcount"></span></div>
+      ${k === '_none' ? '' : '<button type="button" class="small" data-ga="accept">Accept all</button>'}</div>
+      ${groups.get(k).map(pieceHtml).join('')}</section>`).join('');
+  }
+  updateCount(); updateGroupCounts(); saveScan();
   $('addedNote').hidden = !scanMeta?.added;
   if (scanMeta?.added) $('addedNote').textContent = `Added to Rebrickable on ${new Date(scanMeta.addedAt).toLocaleString()}.`;
 }
 function rerender(p) {
   const el = $('pieces').querySelector(`[data-k="${p.key}"]`);
+  if (groupMode === 'place' && el && el.closest('.rgroup')?.dataset.g !== groupOf(p)) return renderReview(); // moved to another place
   if (el) el.outerHTML = pieceHtml(p);
-  drawAnnotated(); updateCount(); saveScan();
+  drawAnnotated(); updateCount(); updateGroupCounts(); saveScan();
 }
+function updateGroupCounts() {
+  document.querySelectorAll('#pieces .rgroup').forEach(sec => {
+    const ps = pieces.filter(p => groupOf(p) === sec.dataset.g && p.state !== 'skip');
+    const all = ps.reduce((n, p) => n + p.qty, 0), ok = ps.filter(p => p.state === 'ok').reduce((n, p) => n + p.qty, 0);
+    sec.querySelector('.rgcount').textContent = sec.dataset.g === '_none' ? ` · ${pieces.filter(p => groupOf(p) === '_none').length}` : ` · ${ok}/${all} accepted`;
+  });
+}
+document.querySelectorAll('#groupMode button').forEach(b => b.onclick = () => { groupMode = b.dataset.mode; store.set('groupMode', groupMode); renderReview(); });
 function updateCount() {
   const n = pieces.filter(p => p.state === 'ok').reduce((s, p) => s + p.qty, 0);
   $('toSummary').textContent = `Review ${n} →`; $('toSummary').disabled = !n;
 }
+$('pieces').addEventListener('input', e => {
+  if (e.target.dataset.a !== 'qty') return;
+  const p = pieces.find(x => x.key == e.target.closest('[data-k]').dataset.k);
+  const n = parseInt(e.target.value, 10);
+  if (n >= 1) { p.qty = Math.min(n, 9999); updateCount(); updateGroupCounts(); saveScan(); }
+});
 $('pieces').addEventListener('change', e => {
+  if (e.target.dataset.a === 'qty') { const p = pieces.find(x => x.key == e.target.closest('[data-k]').dataset.k); e.target.value = p.qty; return; }
   const el = e.target.closest('[data-k]'); if (!el || e.target.dataset.a !== 'color') return;
   const p = pieces.find(x => x.key == el.dataset.k);
   p.color = COL.byId.get(Number(e.target.value)) ?? null; p.colorScore = 1; rerender(p);
 });
 $('pieces').addEventListener('click', async e => {
+  const ga = e.target.closest('button[data-ga]');
+  if (ga) {
+    const g = ga.closest('.rgroup').dataset.g;
+    pieces.forEach(p => { if (groupOf(p) === g && p.part && p.color && p.state === 'todo') p.state = 'ok'; });
+    return renderReview();
+  }
   const b = e.target.closest('button[data-a]'); if (!b) return;
   const p = pieces.find(x => x.key == b.closest('[data-k]').dataset.k);
   const a = b.dataset.a;
@@ -576,7 +610,7 @@ $('acceptSure').onclick = () => {
   pieces.forEach(p => { if (p.state === 'todo' && p.part && p.color && p.score >= 0.75 && p.colorScore >= 0.7) p.state = 'ok'; });
   renderReview();
 };
-$('addMissed').onclick = () => { $('missedForm').hidden = false; $('mColor').innerHTML = colorOptions(null); $('mPart').value = ''; $('mMsg').textContent = ''; $('mPart').focus(); };
+$('addMissed').onclick = () => { $('missedForm').hidden = false; $('mColor').innerHTML = colorOptions(null); $('mPart').value = ''; $('mQty').value = 1; $('mMsg').textContent = ''; $('mPart').focus(); };
 $('mCancel').onclick = () => { $('missedForm').hidden = true; };
 $('mAdd').onclick = async () => {
   const num = $('mPart').value.trim(), c = COL.byId.get(Number($('mColor').value));
@@ -584,7 +618,7 @@ $('mAdd').onclick = async () => {
   $('mMsg').innerHTML = '<span class="spin"></span>Looking up…';
   const p = (await getPart(num).catch(() => null)) ?? (await partFromBL(num).catch(() => null));
   if (!p) { $('mMsg').textContent = `${num} not found on Rebrickable.`; return; }
-  pieces.push({ key: nextId++, id: '+', thumb: null, img: p.img || null, part: p, score: 1, alts: [], color: c, colorScore: 1, suggested: [], qty: 1, state: 'ok' });
+  pieces.push({ key: nextId++, id: '+', thumb: null, img: p.img || null, part: p, score: 1, alts: [], color: c, colorScore: 1, suggested: [], qty: Math.max(1, Math.min(9999, parseInt($('mQty').value, 10) || 1)), state: 'ok' });
   $('missedForm').hidden = true; renderReview();
 };
 $('newScan').onclick = () => { saveScan(true); resetScan(); show('vScan'); };
