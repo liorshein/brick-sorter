@@ -114,12 +114,58 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .small.danger{border-color:var(--warn);color:var(--warn)}
 .small:disabled{opacity:.5}
 .invact{padding:4px 14px 10px;display:flex;justify-content:flex-end}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:grid;grid-template-columns:repeat(5,1fr);background:var(--surface);border-top:2px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0)}
+.tabs button{font:inherit;font-size:12px;font-weight:600;background:transparent;border:0;color:var(--muted);padding:8px 2px 9px;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px}
+.tabs button span{font-size:20px;line-height:1}
+.tabs button[aria-current="page"]{color:var(--pen)}
+.tabs button[aria-current="page"]::after{content:"";width:22px;height:3px;border-radius:2px;background:var(--pen)}
+.toast{position:fixed;left:14px;right:14px;bottom:calc(76px + env(safe-area-inset-bottom,0));z-index:7;background:var(--ink);color:var(--bg);padding:12px 14px;border-radius:12px;font-size:15px;max-width:612px;margin:0 auto}
+input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--pen)}
+.chk{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:15px}
+.chk input{width:22px;height:22px;flex:none;margin-top:1px;accent-color:var(--pen)}
+.rghead{border-left:6px solid var(--pc,var(--line));padding-left:10px}
+.group{border-left:6px solid var(--pc,var(--line))}
+.invg{border-left:6px solid var(--pc,var(--line))}
+.invg summary .pill{margin-left:6px}
+.fill{flex:0 0 52px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-left:auto}
+.fill i{display:block;height:100%;background:var(--pc,var(--pen))}
+.invg summary{flex-wrap:wrap}
+.learned{font-size:13px;color:var(--ok);font-weight:600;margin-top:4px}
+.hint{font-size:13px;margin-top:6px;padding:6px 8px;border-radius:8px;background:var(--bg);color:var(--muted)}
+.link{font:inherit;background:none;border:0;padding:0;color:var(--pen);text-decoration:underline;cursor:pointer;text-align:left}
+.small.on{background:var(--pen);color:var(--on-pen)}
+.puthead{border-left:10px solid var(--pc,var(--pen))}
+.puthead h2{font-size:26px;margin:2px 0}
+.putr{display:grid;grid-template-columns:72px minmax(0,1fr) auto 30px;gap:12px;align-items:center;width:100%;text-align:left;font:inherit;color:var(--ink);background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px;cursor:pointer}
+.putr img,.putr .noimg{width:72px;height:72px;object-fit:contain;border-radius:8px;background:#fff;display:block}
+.putr .pt b{display:block;font-size:16px}
+.putr .meta{font-size:14px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.putr .q{font-size:22px;font-weight:700}
+.putr .tick{width:30px;height:30px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;color:transparent;font-weight:700}
+.putr.done{background:var(--ok-tint);border-color:var(--ok)}
+.putr.done .tick{background:var(--ok);border-color:var(--ok);color:#fff}
+.dot{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.25);flex:none;display:inline-block}
+.findtop{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.findtop figure{margin:0;text-align:center}
+.findtop img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:10px;background:var(--photo)}
+.findtop img.ref{background:#fff}
+.findtop figcaption{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
+.goes{margin:10px 0;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:6px solid var(--pc,var(--pen));font-size:16px}
+.ownr{display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--ink)}
+.setc .seth{display:grid;grid-template-columns:88px minmax(0,1fr);gap:12px;align-items:center}
+.setc .seth img{width:88px;height:66px;object-fit:contain;background:#fff;border-radius:8px}
+.setc .seth .setimg{width:88px;height:66px;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:28px}
+.pbar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:8px 0 4px}
+.pbar i{display:block;height:100%;background:var(--ok)}
+.setc details{margin-top:10px;border-top:1px solid var(--line)}
+.setc details summary{padding:10px 0;font-weight:600;cursor:pointer}
+.setc .invr{padding:8px 0}
 [hidden]{display:none !important}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
 </style>
 </head>
 <body>
-<header><h1>Brick Sorter</h1><div class="hbtns"><button id="navInventory" type="button">Lists</button><button id="navHistory" type="button">History</button><button id="navSettings" type="button">Settings</button></div></header>
+<header><h1>Brick Sorter</h1><div class="hbtns"><button id="navSettings" type="button">Settings</button></div></header>
 <main>
 
 <!-- SETTINGS -->
@@ -144,6 +190,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <p class="muted">One Rebrickable part list per drawer or slot. Safe to run again.</p>
     <button class="btn ghost block" id="sLists" type="button">Check / create lists</button>
     <div class="status" id="sListsMsg"></div>
+  </div>
+  <div class="card">
+    <h2>Sorting</h2>
+    <label class="f" for="thShape">“Accept sure ones” needs shape at least <span id="thShapeV"></span>%</label>
+    <input type="range" id="thShape" min="50" max="95" step="5">
+    <label class="f" for="thColor">…and colour at least <span id="thColorV"></span>%</label>
+    <input type="range" id="thColor" min="50" max="95" step="5">
+    <label class="f" for="capDrawer">A drawer holds about (pieces)</label><input type="number" id="capDrawer" inputmode="numeric" min="10" step="50">
+    <label class="f" for="capSlot">A 12-slot box slot holds about (pieces)</label><input type="number" id="capSlot" inputmode="numeric" min="10" step="10">
+    <label class="chk"><input type="checkbox" id="fbOn"> Send my corrections to Brickognize to help improve its recognition</label>
+    <p class="muted" id="learnInfo" style="margin-top:12px"></p>
+    <button class="btn ghost block" id="learnReset" type="button">Forget learned colour fixes</button>
   </div>
   <div class="card">
     <h2>Start over</h2>
@@ -227,6 +285,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <button class="btn block" id="addAll" type="button">Add to Rebrickable</button>
     <div class="bar" id="addBar" hidden><i></i></div>
     <div class="log" id="addLog" hidden></div>
+    <div class="row" style="margin-top:12px"><button class="btn ghost" id="goPut" type="button">Put away</button><button class="btn" id="scanNext" type="button" hidden>Scan next pile</button></div>
+    <div style="margin-top:10px"><button class="small danger" id="undoAdd" type="button" hidden>Undo this add</button><div class="status" id="undoMsg"></div></div>
   </div>
   <div class="sticky"><div class="inner">
     <button class="btn ghost" id="backReview" type="button">← Back</button>
@@ -240,22 +300,65 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <h2>Your storage lists</h2>
     <p class="muted" id="invStats"></p>
     <div class="row" style="margin-top:8px"><input id="invSearch" type="search" placeholder="Search part, name or colour" aria-label="Search your lists" autocomplete="off"></div>
-    <div class="row" style="margin-top:10px"><button class="btn ghost" id="invRefresh" type="button">Refresh</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" id="invRefresh" type="button">Refresh</button><button class="btn ghost" id="invExport" type="button">Export CSV</button></div>
     <div class="status" id="invMsg" aria-live="polite"></div>
   </div>
   <div id="invGroups"></div>
-  <div class="sticky"><div class="inner"><button class="btn ghost" id="invBack" type="button">← Back</button></div></div>
 </section>
 
 <!-- HISTORY -->
 <section id="vHistory" hidden>
   <div class="card"><h2>Scan history</h2><p class="muted">Every scan is saved on this phone automatically, so nothing is lost if you leave before adding to Rebrickable.</p></div>
+  <div id="histUndo"></div>
   <div id="histList"></div>
-  <div class="sticky"><div class="inner"><button class="btn ghost" id="histBack" type="button">← Back</button></div></div>
+</section>
+
+<!-- FIND -->
+<section id="vFind" hidden>
+  <div class="card">
+    <h2>Find a piece</h2>
+    <p class="muted">Photograph one piece to see where it goes and how many you already have.</p>
+    <div class="picks">
+      <label class="pick"><span class="big" aria-hidden="true">📷</span>Take photo<input type="file" id="findCam" accept="image/*" capture="environment"></label>
+      <label class="pick"><span class="big" aria-hidden="true">🖼️</span>From gallery<input type="file" id="findGal" accept="image/*"></label>
+    </div>
+    <div class="status" id="findMsg" aria-live="polite"></div>
+  </div>
+  <div id="findOut"></div>
+</section>
+
+<!-- SETS -->
+<section id="vSets" hidden>
+  <div class="card">
+    <h2>Set progress</h2>
+    <p class="muted">Track a set to see how much of it is in your storage lists and exactly what’s missing.</p>
+    <div class="row"><input id="setNum" placeholder="Set number, e.g. 41314" autocomplete="off" inputmode="text" aria-label="Set number"><button class="btn" id="setAdd" type="button" style="flex:0 0 auto">Track</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" id="setRefresh" type="button">Refresh</button></div>
+    <div class="status" id="setMsg" aria-live="polite"></div>
+  </div>
+  <div id="setList"></div>
+</section>
+
+<!-- PUT AWAY -->
+<section id="vPut" hidden>
+  <div class="card puthead" id="putHead"></div>
+  <div id="putList"></div>
+  <div class="sticky"><div class="inner">
+    <button class="btn ghost" id="putPrev" type="button">← Back</button>
+    <button class="btn" id="putNext" type="button">Next place →</button>
+  </div></div>
 </section>
 
 </main>
-<script src="scan-core.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<nav class="tabs" id="tabs" aria-label="Sections">
+  <button type="button" id="navScan"><span aria-hidden="true">📷</span>Scan</button>
+  <button type="button" id="navFind"><span aria-hidden="true">🔍</span>Find</button>
+  <button type="button" id="navInventory"><span aria-hidden="true">📋</span>Lists</button>
+  <button type="button" id="navSets"><span aria-hidden="true">🧱</span>Sets</button>
+  <button type="button" id="navHistory"><span aria-hidden="true">🕘</span>History</button>
+</nav>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="scan-core.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

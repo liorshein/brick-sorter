@@ -10,7 +10,8 @@ const store = {
   get(k, d = null) { try { const v = localStorage.getItem('bs:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('bs:' + k, JSON.stringify(v)); } catch { /* storage full or blocked */ } },
 };
-let cfg = store.get('cfg', { key: '', token: '' });
+let cfg = { key: '', token: '', thShape: 75, thColor: 70, capDrawer: 1000, capSlot: 250, feedback: false, ...store.get('cfg', {}) };
+const TH = () => ({ s: cfg.thShape / 100, c: cfg.thColor / 100 });
 
 /* scan history (IndexedDB, on this phone only) */
 const idb = (() => {
@@ -75,6 +76,9 @@ function placeOf(k) {
   return `12-slot box · ${SHORT[k]}`;
 }
 const spotText = s => placeOf(s[0]) + (s[1] ? ' › ' + s[1] : '');
+const HANDLE = { bricks: '#9BD83A', plates: '#F6C531', tiles: '#F2862A', slopes: '#9BD83A', technic: '#F6C531', round: '#F2862A', overflow: '#FFCF1F' };
+const placeColor = k => HANDLE[k] ?? '#5B9BD5'; // 12-slot box: its blue handle
+const keyOf = x => `${x.part.part_num}|${x.color.id}`;
 
 /* ---------- Rebrickable (rate limited to ~1 call/s) ---------- */
 const RB = 'https://rebrickable.com/api/v3';
@@ -194,8 +198,16 @@ async function brickognize(blob, tries = 4) {
 }
 
 /* ---------- views ---------- */
-const views = ['vSettings', 'vScan', 'vReview', 'vSummary', 'vHistory', 'vInventory'];
-function show(v) { views.forEach(x => $(x).hidden = x !== v); window.scrollTo(0, 0); if (v === 'vScan') checkResume(); }
+const views = ['vSettings', 'vScan', 'vReview', 'vSummary', 'vHistory', 'vInventory', 'vFind', 'vSets', 'vPut'];
+const TABS = { vScan: 'navScan', vFind: 'navFind', vInventory: 'navInventory', vSets: 'navSets', vHistory: 'navHistory' };
+function show(v) {
+  views.forEach(x => $(x).hidden = x !== v); window.scrollTo(0, 0);
+  $('tabs').hidden = !(v in TABS);
+  for (const [view, id] of Object.entries(TABS)) $(id).setAttribute('aria-current', view === v ? 'page' : 'false');
+  if (v === 'vScan') checkResume();
+}
+$('navScan').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
+let toastT; function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 4500); }
 const accepted = sc => sc.pieces.filter(p => p.state === 'ok').reduce((n, p) => n + p.qty, 0);
 async function checkResume() {
   const box = $('resume'); box.hidden = true;
@@ -225,6 +237,9 @@ async function showHistory() {
         <span class="pill ${sc.added ? 'good' : ''}">${sc.added ? 'Added to Rebrickable' : 'Not added yet'}</span>
         <div class="acts"><button type="button" data-a="open">Open</button><button type="button" data-a="del">Delete</button></div></div></div>`).join('')
     : '<p class="muted">No scans yet. Every scan is saved here automatically.</p>';
+  const la = store.get('lastAdd');
+  $('histUndo').innerHTML = la ? `<div class="card"><p><b>Last add:</b> ${esc(new Date(la.at).toLocaleString())}, ${la.ops.length} entries.</p><button type="button" class="small danger" id="undoFromHist">Undo last add</button><div class="status" id="undoHistMsg"></div></div>` : '';
+  if (la) $('undoFromHist').onclick = async () => { const f = await undoLastAdd($('undoHistMsg')); if (f !== null) showHistory(); };
   show('vHistory');
 }
 $('navHistory').onclick = showHistory;
@@ -236,7 +251,6 @@ $('histList').addEventListener('click', async e => {
     await idb.del(id).catch(() => {}); if (scanMeta?.id === id) resetScan(); showHistory();
   }
 });
-$('histBack').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
 
 /* ---------- live inventory from Rebrickable ---------- */
 const SPOT_BY_LIST = Object.fromEntries(Object.entries(SPOTS).map(([k, n]) => [n, k]));
@@ -252,7 +266,9 @@ function invRender() {
   el.innerHTML = inv.groups.map(g => {
     const rows = g.rows.filter(match); if (q && !rows.length) return '';
     const n = g.rows.reduce((a, r) => a + r.qty, 0);
-    return `<details class="invg" ${q || g.open ? 'open' : ''} data-k="${g.key}"><summary><span>${esc(placeOf(g.key))}</span><span class="pill ${n ? 'good' : 'zero'}">${n}</span></summary>
+    const cap = TOWER.includes(g.key) ? cfg.capDrawer : g.key === 'overflow' ? 0 : cfg.capSlot;
+    const pct = cap ? Math.min(100, Math.round(n / cap * 100)) : 0;
+    return `<details class="invg" ${q || g.open ? 'open' : ''} data-k="${g.key}" style="--pc:${placeColor(g.key)}"><summary><span>${esc(placeOf(g.key))}${pct >= 85 ? ' <span class="pill">Getting full</span>' : ''}</span><span class="pill ${n ? 'good' : 'zero'}">${n}</span>${cap ? `<span class="fill" title="${pct}% of about ${cap}"><i style="width:${pct}%"></i></span>` : ''}</summary>
       ${n && !q ? `<div class="invact"><button type="button" class="small danger" data-empty="${g.key}">Empty this list</button></div>` : ''}
       ${rows.length ? rows.map(r => `<div class="invr${invPrev && (invPrev.get(r.num + '|' + r.colorId) ?? 0) < r.qty ? ' new' : ''}">
         ${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="noimg"></span>'}
@@ -282,6 +298,17 @@ async function invLoad() {
 }
 $('navInventory').onclick = () => { invRender(); show('vInventory'); invLoad(); };
 $('invRefresh').onclick = invLoad;
+$('invExport').onclick = async () => {
+  if (!inv) await invLoad(); if (!inv) return;
+  const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  const lines = [['List', 'Place', 'Part', 'Name', 'Color ID', 'Color', 'Quantity'].join(',')];
+  for (const g of inv.groups) for (const r of g.rows) lines.push([SPOTS[g.key], placeOf(g.key), r.num, r.name, r.colorId, r.color, r.qty].map(q).join(','));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
+  a.download = `brick-sorter-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast('Backup saved to your downloads.');
+};
 $('invGroups').addEventListener('click', async e => {
   const b = e.target.closest('button[data-empty]'); if (!b || invLoading) return;
   const key = b.dataset.empty, g = inv?.groups.find(x => x.key === key); if (!g) return;
@@ -306,16 +333,24 @@ $('invGroups').addEventListener('toggle', e => {
   const d = e.target.closest?.('details[data-k]'); if (!d || !inv || $('invSearch').value) return;
   const g = inv.groups.find(x => x.key === d.dataset.k); if (g) { g.open = d.open; store.set('inv', inv); }
 }, true);
-$('invBack').onclick = () => show(pieces.length ? 'vReview' : 'vScan');
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('vInventory').hidden) invLoad(); });
 $('navSettings').onclick = () => { fillSettings(); show('vSettings'); };
 $('sDone').onclick = () => show(cfg.key && cfg.token ? (pieces.length ? 'vReview' : 'vScan') : 'vSettings');
 
 function fillSettings() {
+  $('thShape').value = cfg.thShape; $('thShapeV').textContent = cfg.thShape;
+  $('thColor').value = cfg.thColor; $('thColorV').textContent = cfg.thColor;
+  $('capDrawer').value = cfg.capDrawer; $('capSlot').value = cfg.capSlot; $('fbOn').checked = !!cfg.feedback;
+  const n = Object.values(learn.part).reduce((a, m) => a + Object.keys(m).length, 0);
+  $('learnInfo').textContent = n ? `Colour fixes learned so far: ${n}.` : 'No colour fixes learned yet. They build up as you correct colours and add scans.';
   $('sKey').value = cfg.key || '';
   $('sKeyMsg').textContent = cfg.key ? 'Key saved.' : '';
   $('sLoginMsg').textContent = cfg.token ? 'Signed in.' : '';
 }
+for (const id of ['thShape', 'thColor']) $(id).addEventListener('input', () => { cfg[id] = +$(id).value; $(id + 'V').textContent = cfg[id]; saveCfg(); });
+for (const id of ['capDrawer', 'capSlot']) $(id).addEventListener('change', () => { const v = parseInt($(id).value, 10); if (v >= 10) { cfg[id] = v; saveCfg(); } else $(id).value = cfg[id]; });
+$('fbOn').addEventListener('change', () => { cfg.feedback = $('fbOn').checked; saveCfg(); });
+$('learnReset').onclick = () => { if (!confirm('Forget all learned colour fixes?')) return; learn = { part: {}, gen: {} }; store.set('learn', learn); fillSettings(); };
 $('sKeySave').onclick = async () => {
   const k = $('sKey').value.trim(); const m = $('sKeyMsg');
   if (!k) { m.textContent = 'Paste your key first.'; return; }
@@ -480,12 +515,17 @@ async function scanFile(file) {
       const items = f.raw?.items ?? [];
       const p = items[0] ? (partMap.get(items[0].id) ?? null) : null;
       const cols = (f.raw?.colors ?? []).map(c => C.byBL.get(String(c.id)) ?? C.byName.get(String(c.name).toLowerCase())).filter(Boolean);
+      let color = cols[0] ?? null, colorScore = f.raw?.colors?.[0]?.score ?? 0, learnedFrom = null;
+      const fix = p && color ? learnedColor(p.part_num, color.id) : null;
+      if (fix != null && C.byId.get(+fix)) { learnedFrom = color.name; color = C.byId.get(+fix); colorScore = 0.95; }
       pieces.push({
+        origColor: cols[0]?.id ?? null, learnedFrom, listing: f.raw?.listing_id ?? null, partBL: items[0]?.id ?? null,
+        bgItems: items.slice(0, 3).map(x => x.id), bgColors: (f.raw?.colors ?? []).map(c => String(c.id)),
         key: nextId++, id: f.id, thumb: f.thumb, part: p, score: items[0]?.score ?? 0, blName: items[0]?.name,
         img: items[0]?.img_url || p?.img || null,
         alts: items.slice(1, 3).map(x => ({ id: x.id, name: x.name, score: x.score, img: x.img_url })),
-        color: cols[0] ?? null, colorScore: f.raw?.colors?.[0]?.score ?? 0, suggested: cols.slice(0, 3),
-        qty: 1, state: p && cols[0] ? 'todo' : 'skip', err: f.err || (!items.length ? 'No match' : !p ? 'Not on Rebrickable' : null),
+        color, colorScore, suggested: cols.slice(0, 3),
+        qty: 1, state: p && color ? 'todo' : 'skip', err: f.err || (!items.length ? 'No match' : !p ? 'Not on Rebrickable' : null),
       });
     }
     setMsg('');
@@ -525,7 +565,7 @@ function colorOptions(sel, suggested = []) {
     C.list.filter(c => !sug.some(x => x.id === c.id)).map(opt).join('') + (sug.length ? '</optgroup>' : '');
 }
 function pieceHtml(p) {
-  const unsure = p.part && (p.score < 0.75 || p.colorScore < 0.7);
+  const unsure = p.part && (p.score < TH().s || p.colorScore < TH().c);
   const cls = 'piece ' + (p.state === 'ok' ? 'ok' : p.state === 'skip' ? 'skip' : unsure ? 'unsure' : '');
   const ref = p.img || p.part?.img;
   const img = `<div class="pics"><figure>${p.thumb ? `<img src="${p.thumb}" alt="Your piece ${p.id}">` : '<div class="noimg">–</div>'}<figcaption>Yours</figcaption></figure>`
@@ -535,11 +575,13 @@ function pieceHtml(p) {
       <div class="acts"><button type="button" data-a="part">Enter part number</button></div></div></div>`;
   const s = p.color ? spotOf(p.part, p.color) : spotOf(p.part, null);
   return `<div class="${cls}" data-k="${p.key}">${img}<div>
-    <div><span class="num">#${p.id}</span> <span class="pill ${p.score >= .75 ? 'good' : ''}">${Math.round(p.score * 100)}%</span>
+    <div><span class="num">#${p.id}</span> <span class="pill ${p.score >= TH().s ? 'good' : ''}">${Math.round(p.score * 100)}%</span>
       <span class="meta">${esc(p.part.part_num)}</span></div>
     <div class="name">${esc(p.part.name)}</div>
     <div class="colrow"><span class="sw" style="background:#${p.color ? esc(p.color.rgb) : 'ccc'}" aria-hidden="true"></span><select data-a="color" aria-label="Colour">${colorOptions(p.color, p.suggested)}</select></div>
+    ${p.learnedFrom ? `<div class="learned">Colour fixed from ${esc(p.learnedFrom)} (learned from your corrections)</div>` : ''}
     <div class="spot">${esc(p.color ? spotText(s) : 'Pick a colour')}</div>
+    ${hintHtml(p.part, p.color)}
     <div class="acts">
       <button type="button" data-a="ok" class="${p.state === 'ok' ? 'on' : ''}" ${p.color ? '' : 'disabled'}>${p.state === 'ok' ? '✓ Accepted' : 'Accept'}</button>
       <span class="qty"><button type="button" data-a="minus" aria-label="Fewer">−</button><input type="number" inputmode="numeric" min="1" max="9999" value="${p.qty}" data-a="qty" aria-label="Quantity"><button type="button" data-a="plus" aria-label="More">+</button></span>
@@ -558,12 +600,12 @@ function renderReview() {
     const groups = new Map();
     for (const p of pieces) { const k = groupOf(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
     const keys = [...groups.keys()].sort((a, b) => (a === '_none') - (b === '_none') || ORDER.indexOf(a) - ORDER.indexOf(b));
-    $('pieces').innerHTML = keys.map(k => `<section class="rgroup" data-g="${k}">
+    $('pieces').innerHTML = keys.map(k => `<section class="rgroup" data-g="${k}" style="--pc:${k === '_none' ? 'var(--line)' : placeColor(k)}">
       <div class="rghead"><div><b>${k === '_none' ? 'Needs a part number' : esc(placeOf(k))}</b><span class="rgcount"></span></div>
       ${k === '_none' ? '' : '<button type="button" class="small" data-ga="accept">Accept all</button>'}</div>
       ${groups.get(k).map(pieceHtml).join('')}</section>`).join('');
   }
-  updateCount(); updateGroupCounts(); saveScan();
+  updateCount(); updateGroupCounts(); saveScan(); fillHints($('pieces'));
   $('addedNote').hidden = !scanMeta?.added;
   if (scanMeta?.added) $('addedNote').textContent = `Added to Rebrickable on ${new Date(scanMeta.addedAt).toLocaleString()}.`;
 }
@@ -571,7 +613,7 @@ function rerender(p) {
   const el = $('pieces').querySelector(`[data-k="${p.key}"]`);
   if (groupMode === 'place' && el && el.closest('.rgroup')?.dataset.g !== groupOf(p)) return renderReview(); // moved to another place
   if (el) el.outerHTML = pieceHtml(p);
-  drawAnnotated(); updateCount(); updateGroupCounts(); saveScan();
+  drawAnnotated(); updateCount(); updateGroupCounts(); saveScan(); fillHints($('pieces'));
 }
 function updateGroupCounts() {
   document.querySelectorAll('#pieces .rgroup').forEach(sec => {
@@ -595,7 +637,7 @@ $('pieces').addEventListener('change', e => {
   if (e.target.dataset.a === 'qty') { const p = pieces.find(x => x.key == e.target.closest('[data-k]').dataset.k); e.target.value = p.qty; return; }
   const el = e.target.closest('[data-k]'); if (!el || e.target.dataset.a !== 'color') return;
   const p = pieces.find(x => x.key == el.dataset.k);
-  p.color = COL.byId.get(Number(e.target.value)) ?? null; p.colorScore = 1; rerender(p);
+  p.color = COL.byId.get(Number(e.target.value)) ?? null; p.colorScore = 1; p.learnedFrom = null; rerender(p);
 });
 $('pieces').addEventListener('click', async e => {
   const ga = e.target.closest('button[data-ga]');
@@ -614,20 +656,20 @@ $('pieces').addEventListener('click', async e => {
   if (a === 'alt') {
     const alt = p.alts[+b.dataset.i]; b.disabled = true; b.textContent = '…';
     const np = await partFromBL(alt.id).catch(() => null);
-    if (np) { p.alts[+b.dataset.i] = { id: p.part.part_num, name: p.part.name, score: p.score, img: p.img }; p.part = np; p.img = alt.img || np.img || null; p.score = alt.score; p.state = 'todo'; }
+    if (np) { p.alts[+b.dataset.i] = { id: p.part.part_num, name: p.part.name, score: p.score, img: p.img }; p.part = np; p.img = alt.img || np.img || null; p.score = alt.score; p.state = 'todo'; const pb = p.partBL; p.partBL = alt.id; p.alts[+b.dataset.i].id = pb ?? p.alts[+b.dataset.i].id; }
     else alert(`${alt.id} isn’t on Rebrickable.`);
   }
   if (a === 'part') {
     const num = prompt('Part number (Rebrickable or BrickLink):', p.part?.part_num ?? ''); if (!num) return;
     b.disabled = true; b.textContent = '…';
     const np = (await getPart(num.trim()).catch(() => null)) ?? (await partFromBL(num.trim()).catch(() => null));
-    if (np) { p.part = np; p.img = np.img || null; p.score = 1; p.alts = []; p.err = null; p.state = 'todo'; }
+    if (np) { p.part = np; p.img = np.img || null; p.score = 1; p.alts = []; p.err = null; p.state = 'todo'; p.partBL = num.trim(); }
     else { alert(`${num} not found on Rebrickable.`); }
   }
   rerender(p);
 });
 $('acceptSure').onclick = () => {
-  pieces.forEach(p => { if (p.state === 'todo' && p.part && p.color && p.score >= 0.75 && p.colorScore >= 0.7) p.state = 'ok'; });
+  pieces.forEach(p => { if (p.state === 'todo' && p.part && p.color && p.score >= TH().s && p.colorScore >= TH().c) p.state = 'ok'; });
   renderReview();
 };
 $('addMissed').onclick = () => { $('missedForm').hidden = false; $('mColor').innerHTML = colorOptions(null); $('mPart').value = ''; $('mQty').value = 1; $('mMsg').textContent = ''; $('mPart').focus(); };
@@ -644,12 +686,12 @@ $('mAdd').onclick = async () => {
 $('newScan').onclick = () => { saveScan(true); resetScan(); show('vScan'); };
 
 /* ---------- summary & add ---------- */
-function merged() {
+function merged(pcs = pieces) {
   const m = new Map();
-  for (const p of pieces) {
+  for (const p of pcs) {
     if (p.state !== 'ok' || !p.part || !p.color) continue;
     const k = p.part.part_num + '|' + p.color.id;
-    const x = m.get(k) ?? { part: p.part, color: p.color, qty: 0, spot: spotOf(p.part, p.color) };
+    const x = m.get(k) ?? { part: p.part, color: p.color, qty: 0, spot: spotOf(p.part, p.color), thumb: p.thumb, img: p.img || p.part.img };
     x.qty += p.qty; m.set(k, x);
   }
   return [...m.values()];
@@ -658,17 +700,63 @@ $('toSummary').onclick = () => {
   const items = merged(), by = new Map();
   for (const x of items) { if (!by.has(x.spot[0])) by.set(x.spot[0], []); by.get(x.spot[0]).push(x); }
   $('groups').innerHTML = [...by.keys()].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)).map(k =>
-    `<div class="group"><b>${esc(placeOf(k))}</b>${by.get(k).map(x => `<div>${x.qty}× ${esc(x.part.name)} · ${esc(x.color.name)}${x.spot[1] ? ` · ${esc(x.spot[1])}` : ''}</div>`).join('')}</div>`).join('');
+    `<div class="group" style="--pc:${placeColor(k)}"><b>${esc(placeOf(k))}</b>${by.get(k).map(x => `<div>${x.qty}× ${esc(x.part.name)} · ${esc(x.color.name)}${x.spot[1] ? ` · ${esc(x.spot[1])}` : ''}</div>`).join('')}</div>`).join('');
   const total = items.reduce((s, x) => s + x.qty, 0);
   $('addAll').textContent = `Add ${total} pieces to Rebrickable`; $('addAll').disabled = false;
   $('addLog').hidden = true; $('addBar').hidden = true;
+  $('scanNext').hidden = !scanMeta?.added && !scanMeta?.queued; $('undoAdd').hidden = !(scanMeta?.added && store.get('lastAdd')?.scanId === scanMeta.id);
   show('vSummary');
 };
 $('backReview').onclick = () => show('vReview');
 $('doneScan').onclick = () => { saveScan(true); resetScan(); show('vScan'); };
+function persist(meta, pcs) { if (meta === scanMeta) return saveScan(true); return idb.put({ ...meta, pieces: pcs, nextId: pcs.length + 1 }).catch(() => {}); }
+// Adds items to the right storage lists. One bulk call per list; existing entries get a quantity update.
+async function performAdd(items, meta, pcs, line = () => {}, onStep = () => {}) {
+  const { lists, byList } = await storageContents(); let ok = 0, step = 0; const ops = [];
+  const done1 = (x, now) => { ok++; meta?.addedKeys.push(keyOf(x)); line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now && now != x.qty ? ` (now ${now})` : ''}`); };
+  const fail1 = (x, msg) => line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${msg}`);
+  const targets = new Map();
+  for (const x of items) {
+    const list = lists.find(l => l.name === SPOTS[x.spot[0]]);
+    if (!list) { fail1(x, `list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`); continue; }
+    if (!targets.has(list.id)) targets.set(list.id, { list, xs: [] });
+    targets.get(list.id).xs.push(x);
+  }
+  for (const { list, xs } of targets.values()) {
+    const have = new Map(byList.get(list.id).map(r => [`${r.part.part_num}|${r.color.id}`, r.quantity]));
+    const fresh = xs.filter(x => !have.has(keyOf(x))), more = xs.filter(x => have.has(keyOf(x)));
+    if (fresh.length) {
+      try {
+        const res = await rb(`/users/${cfg.token}/partlists/${list.id}/parts/`, { method: 'POST', json: fresh.map(x => ({ part_num: x.part.part_num, color_id: x.color.id, quantity: x.qty })) });
+        const arr = Array.isArray(res) ? res : res ? [res] : [];
+        const got = new Set(arr.map(r => `${r.part?.part_num ?? r.part_num}|${r.color?.id ?? r.color_id}`));
+        const trustAll = !fresh.some(x => got.has(keyOf(x))) && arr.length === fresh.length;
+        for (const x of fresh) {
+          if (trustAll || got.has(keyOf(x))) { done1(x); ops.push({ list: list.id, part: x.part.part_num, color: x.color.id, prev: 0 }); }
+          else fail1(x, 'Rebrickable didn’t accept this part/colour');
+        }
+      } catch (e) { if (e instanceof TypeError) throw e; for (const x of fresh) fail1(x, e.message); }
+    }
+    for (const x of more) {
+      try {
+        const prev = have.get(keyOf(x)), total = prev + x.qty;
+        await rb(`/users/${cfg.token}/partlists/${list.id}/parts/${encodeURIComponent(x.part.part_num)}/${x.color.id}/`, { method: 'PUT', form: { quantity: total } });
+        done1(x, total); ops.push({ list: list.id, part: x.part.part_num, color: x.color.id, prev });
+      } catch (e) { if (e instanceof TypeError) throw e; fail1(x, e.message); }
+    }
+    persist(meta, pcs); onStep(++step / targets.size);
+  }
+  if (ops.length) store.set('lastAdd', { at: Date.now(), scanId: meta?.id ?? null, ops });
+  if (meta && ok === items.length) {
+    meta.added = true; meta.addedAt = Date.now(); meta.queued = false;
+    if (!meta.learned) { recordLearning(pcs); meta.learned = true; }
+    if (cfg.feedback && !meta.fbSent) { meta.fbSent = true; sendFeedback(pcs); }
+    persist(meta, pcs);
+  }
+  return ok;
+}
 $('addAll').onclick = async () => {
   let items = merged(); if (!items.length) return;
-  const keyOf = x => `${x.part.part_num}|${x.color.id}`;
   const done = new Set(scanMeta?.addedKeys || []);
   if (items.every(x => done.has(keyOf(x)))) {
     if (!confirm('Everything here was already added to Rebrickable. Add it all again?')) return;
@@ -676,43 +764,275 @@ $('addAll').onclick = async () => {
   }
   items = items.filter(x => !done.has(keyOf(x)));
   $('addAll').disabled = true; const log = $('addLog'); log.hidden = false; log.innerHTML = '';
-  const bar = $('addBar'); bar.hidden = false;
+  const bar = $('addBar'); bar.hidden = false; bar.firstElementChild.style.width = '0';
   const line = (cls, t) => { log.innerHTML += `<div class="${cls}">${esc(t)}</div>`; log.scrollTop = log.scrollHeight; };
+  const queueIt = () => {
+    if (scanMeta) { scanMeta.queued = true; saveScan(true); }
+    line('', 'You’re offline. This scan is saved and will be added to Rebrickable automatically when you’re back online.');
+    $('scanNext').hidden = false;
+  };
+  if (!navigator.onLine) return queueIt();
   try {
-    const { lists, byList } = await storageContents(); let ok = 0, step = 0;
-    const done1 = (x, now) => { ok++; if (scanMeta) scanMeta.addedKeys.push(keyOf(x)); line('ok-t', `✓ ${x.qty}× ${x.part.part_num} ${x.color.name} → ${placeOf(x.spot[0])}${now && now != x.qty ? ` (now ${now})` : ''}`); };
-    const fail1 = (x, msg) => line('bad-t', `✗ ${x.part.part_num} ${x.color.name}: ${msg}`);
-    const targets = new Map();
-    for (const x of items) {
-      const list = lists.find(l => l.name === SPOTS[x.spot[0]]);
-      if (!list) { fail1(x, `list "${SPOTS[x.spot[0]]}" missing; run Settings → lists`); continue; }
-      if (!targets.has(list.id)) targets.set(list.id, { list, xs: [] });
-      targets.get(list.id).xs.push(x);
-    }
-    for (const { list, xs } of targets.values()) {
-      const have = new Map(byList.get(list.id).map(r => [`${r.part.part_num}|${r.color.id}`, r.quantity]));
-      const fresh = xs.filter(x => !have.has(keyOf(x))), more = xs.filter(x => have.has(keyOf(x)));
-      if (fresh.length) {
-        try {
-          const res = await rb(`/users/${cfg.token}/partlists/${list.id}/parts/`, { method: 'POST', json: fresh.map(x => ({ part_num: x.part.part_num, color_id: x.color.id, quantity: x.qty })) });
-          const arr = Array.isArray(res) ? res : res ? [res] : [];
-          const got = new Set(arr.map(r => `${r.part?.part_num ?? r.part_num}|${r.color?.id ?? r.color_id}`));
-          const trustAll = !fresh.some(x => got.has(keyOf(x))) && arr.length === fresh.length;
-          for (const x of fresh) (trustAll || got.has(keyOf(x))) ? done1(x) : fail1(x, 'Rebrickable didn’t accept this part/colour');
-        } catch (e) { for (const x of fresh) fail1(x, e.message); }
-      }
-      for (const x of more) {
-        try { const total = have.get(keyOf(x)) + x.qty; await rb(`/users/${cfg.token}/partlists/${list.id}/parts/${encodeURIComponent(x.part.part_num)}/${x.color.id}/`, { method: 'PUT', form: { quantity: total } }); done1(x, total); }
-        catch (e) { fail1(x, e.message); }
-      }
-      saveScan(true);
-      bar.firstElementChild.style.width = Math.round(++step / targets.size * 100) + '%';
-    }
-    line('', ok === items.length ? 'All added.' : `${ok} of ${items.length} added.`);
-    if (ok === items.length && scanMeta) { scanMeta.added = true; scanMeta.addedAt = Date.now(); saveScan(true); }
-  } catch (e) { line('bad-t', e.message); $('addAll').disabled = false; }
+    const ok = await performAdd(items, scanMeta, pieces, line, f => bar.firstElementChild.style.width = Math.round(f * 100) + '%');
+    line('', ok === items.length ? 'All added.' : `${ok} of ${items.length} added. Tap the button again to retry the rest.`);
+    if (ok < items.length) $('addAll').disabled = false;
+    if (ok) { $('scanNext').hidden = false; $('undoAdd').hidden = false; }
+  } catch (e) {
+    if (e instanceof TypeError || !navigator.onLine) queueIt();
+    else { line('bad-t', e.message); $('addAll').disabled = false; }
+  }
 };
+$('scanNext').onclick = () => { saveScan(true); resetScan(); show('vScan'); $('cam').click(); };
+$('undoAdd').onclick = async () => { const f = await undoLastAdd($('undoMsg')); if (f !== null) { $('undoAdd').hidden = true; $('addAll').disabled = false; } };
+
+/* ---------- undo ---------- */
+async function undoLastAdd(msgEl) {
+  const la = store.get('lastAdd'); if (!la) return null;
+  if (!confirm(`Undo the last add to Rebrickable (${la.ops.length} entries, ${new Date(la.at).toLocaleString()})?`)) return null;
+  msgEl.innerHTML = '<span class="spin"></span>Undoing…'; let fail = 0;
+  for (const o of la.ops) {
+    const u = `/users/${cfg.token}/partlists/${o.list}/parts/${encodeURIComponent(o.part)}/${o.color}/`;
+    try { if (o.prev > 0) await rb(u, { method: 'PUT', form: { quantity: o.prev } }); else await rb(u, { method: 'DELETE' }); }
+    catch (e) { if (e.status !== 404) fail++; }
+  }
+  store.set('lastAdd', null);
+  if (la.scanId) {
+    const sc = await idb.get(la.scanId).catch(() => null);
+    const keys = new Set(la.ops.map(o => `${o.part}|${o.color}`));
+    const fix = m => { m.addedKeys = (m.addedKeys || []).filter(k => !keys.has(k)); m.added = false; delete m.addedAt; };
+    if (scanMeta?.id === la.scanId) { fix(scanMeta); saveScan(true); } else if (sc) { fix(sc); await idb.put(sc).catch(() => {}); }
+  }
+  msgEl.innerHTML = fail ? `<span class="bad-t">Undone, but ${fail} entr${fail === 1 ? 'y' : 'ies'} couldn’t be changed (the list may have been emptied since).</span>` : '<span class="ok-t">Undone. Those pieces are out of Rebrickable again.</span>';
+  return fail;
+}
+
+/* ---------- offline queue ---------- */
+async function retryQueued() {
+  if (!navigator.onLine || !cfg.key || !cfg.token) return;
+  const queued = (await idb.all().catch(() => [])).filter(sc => sc.queued && !sc.added);
+  for (const sc of queued) {
+    const { pieces: pcs, nextId: _n, ...meta } = sc;
+    const live = scanMeta?.id === sc.id;
+    const m = live ? scanMeta : meta, ps = live ? pieces : pcs;
+    const done = new Set(m.addedKeys || []);
+    const items = merged(ps).filter(x => !done.has(keyOf(x)));
+    try { const ok = await performAdd(items, m, ps); if (ok === items.length) toast(`A saved scan from ${new Date(sc.at).toLocaleString()} was added to Rebrickable.`); }
+    catch { return; }
+  }
+}
+window.addEventListener('online', retryQueued);
+
+/* ---------- learning colour fixes ---------- */
+let learn = store.get('learn', { part: {}, gen: {} });
+function bestFix(m, from) {
+  if (!m) return null;
+  const [to, n] = Object.entries(m).filter(([k]) => k != from).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+  return to != null && n > (m[from] ?? 0) ? [to, n] : null;
+}
+function learnedColor(partNum, from) {
+  const a = bestFix(learn.part[`${partNum}|${from}`], from); if (a && a[1] >= 2) return a[0];
+  const b = bestFix(learn.gen[from], from); if (b && b[1] >= 3) return b[0];
+  return null;
+}
+function recordLearning(pcs) {
+  for (const p of pcs) {
+    if (p.state !== 'ok' || !p.part || !p.color || p.origColor == null) continue;
+    const from = p.origColor, to = p.color.id, k = `${p.part.part_num}|${from}`;
+    (learn.part[k] ??= {})[to] = (learn.part[k][to] ?? 0) + 1;
+    (learn.gen[from] ??= {})[to] = (learn.gen[from][to] ?? 0) + 1;
+  }
+  store.set('learn', learn);
+}
+
+/* ---------- feedback to Brickognize (opt-in) ---------- */
+async function sendFeedback(pcs) {
+  const post = (path, body) => fetch('https://api.brickognize.com' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+  for (const p of pcs) {
+    if (p.state !== 'ok' || !p.listing || !p.part || !p.color) continue;
+    const ir = p.bgItems?.indexOf(p.partBL) ?? -1;
+    if (p.bgItems?.length) await post('/feedback/', { listing_id: p.listing, item_id: ir >= 0 ? p.partBL : p.bgItems[0], item_type: 'part', is_prediction_correct: ir >= 0, source: 'external-app', item_rank: Math.max(ir, 0) });
+    if (p.bgColors?.length) {
+      const bl = (p.color.bl ?? []).map(String), cr = p.bgColors.findIndex(id => bl.includes(id));
+      await post('/feedback/color/', { listing_id: p.listing, is_prediction_correct: cr >= 0, source: 'external-app', color_id: cr >= 0 ? p.bgColors[cr] : p.bgColors[0], color_rank: Math.max(cr, 0) });
+    }
+    await sleep(200);
+  }
+}
+
+/* ---------- put-away mode ---------- */
+let put = null;
+function startPut() {
+  const by = new Map();
+  for (const x of merged()) { if (!by.has(x.spot[0])) by.set(x.spot[0], []); by.get(x.spot[0]).push(x); }
+  const places = [...by.keys()].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
+    .map(k => ({ k, items: by.get(k).sort((a, b) => String(a.spot[1]).localeCompare(String(b.spot[1])) || a.part.name.localeCompare(b.part.name)) }));
+  if (!places.length) return;
+  if (scanMeta) scanMeta.putDone ??= [];
+  put = { places, i: 0 }; renderPut(); show('vPut');
+}
+function renderPut() {
+  const done = new Set(scanMeta?.putDone ?? []);
+  if (put.i >= put.places.length) {
+    $('putHead').style.setProperty('--pc', 'var(--ok)');
+    $('putHead').innerHTML = '<h2>All put away</h2><p class="muted">Every piece from this scan has a home.</p>';
+    $('putList').innerHTML = '<div class="card"><button class="btn block" id="putScanNext" type="button">Scan next pile</button></div>';
+    $('putScanNext').onclick = () => $('scanNext').onclick();
+    $('putPrev').disabled = false; $('putNext').textContent = 'Back to summary'; return;
+  }
+  const pl = put.places[put.i], n = pl.items.reduce((a, x) => a + x.qty, 0);
+  $('putHead').style.setProperty('--pc', placeColor(pl.k));
+  $('putHead').innerHTML = `<p class="muted">Place ${put.i + 1} of ${put.places.length}</p><h2>${esc(placeOf(pl.k))}</h2><p class="muted">${n} piece${n === 1 ? '' : 's'} · tap each one as it goes in</p>`;
+  $('putList').innerHTML = pl.items.map(x => `<button type="button" class="putr ${done.has(keyOf(x)) ? 'done' : ''}" data-pk="${esc(keyOf(x))}">
+      ${x.thumb || x.img ? `<img src="${esc(x.thumb || x.img)}" alt="">` : '<span class="noimg"></span>'}
+      <span class="pt"><b>${esc(x.part.name)}</b><span class="meta"><span class="dot" style="background:#${esc(x.color.rgb)}"></span>${esc(x.color.name)}${x.spot[1] ? ` · ${esc(x.spot[1])}` : ''}</span></span>
+      <span class="q">×${x.qty}</span><span class="tick" aria-hidden="true">✓</span></button>`).join('');
+  $('putPrev').disabled = put.i === 0;
+  $('putNext').textContent = put.i === put.places.length - 1 ? 'Finish ✓' : 'Next place →';
+}
+$('putList').addEventListener('click', e => {
+  const b = e.target.closest('[data-pk]'); if (!b || !scanMeta) return;
+  const k = b.dataset.pk, s = new Set(scanMeta.putDone); s.has(k) ? s.delete(k) : s.add(k);
+  scanMeta.putDone = [...s]; saveScan(); b.classList.toggle('done');
+});
+$('putPrev').onclick = () => { put.i = Math.max(0, put.i - 1); renderPut(); window.scrollTo(0, 0); };
+$('putNext').onclick = () => { if (put.i >= put.places.length) return show('vSummary'); put.i++; renderPut(); window.scrollTo(0, 0); };
+$('goPut').onclick = startPut;
+
+/* ---------- printed-part hints ---------- */
+const hintCache = store.get('hints', {});
+const isPrinted = part => /(pr|pat)\d/.test(part.part_num) || / print\b/i.test(part.name);
+function hintHtml(part, color) { return part && color && isPrinted(part) ? `<div class="hint" data-hint="${esc(part.part_num)}|${color.id}">Looking up which sets this print comes from…</div>` : ''; }
+async function hintSets(partNum, colorId) {
+  const k = `${partNum}|${colorId}`; if (hintCache[k]) return hintCache[k];
+  const d = await rb(`/lego/parts/${encodeURIComponent(partNum)}/colors/${colorId}/sets/?page_size=6`);
+  const v = d.results.map(x => ({ num: x.set_num, name: x.name, year: x.year }));
+  hintCache[k] = v; store.set('hints', hintCache); return v;
+}
+async function fillHints(root) {
+  for (const el of root.querySelectorAll('.hint[data-hint]:not([data-done])')) {
+    el.dataset.done = '1'; const [pn, c] = el.dataset.hint.split('|');
+    try {
+      const v = await hintSets(pn, c);
+      el.innerHTML = v.length ? `Print found in ${v.length >= 6 ? '6+' : v.length} set${v.length > 1 ? 's' : ''}: ` + v.slice(0, 3).map(x => `<button type="button" class="link" data-track="${esc(x.num)}">${esc(x.num.replace(/-1$/, ''))} ${esc(x.name)}</button>`).join(' · ') : 'No sets listed for this print.';
+    } catch { el.textContent = ''; }
+  }
+}
+document.addEventListener('click', e => { const t = e.target.closest('button[data-track]'); if (t) { e.stopPropagation(); trackSet(t.dataset.track); } }, true);
+
+/* ---------- find a piece ---------- */
+let find = null;
+async function findFile(file) {
+  if (!file) return;
+  const msg = $('findMsg'); $('findOut').innerHTML = '';
+  if (!cfg.key) { msg.textContent = 'Set up your Rebrickable key in Settings first.'; return; }
+  msg.innerHTML = '<span class="spin"></span>Identifying…';
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const c = drawTo(bmp, 900), thumb = drawTo(c, 240).toDataURL('image/jpeg', 0.8);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+    const raw = await brickognize(blob), C = await colors();
+    const cols = (raw.colors ?? []).map(x => C.byBL.get(String(x.id)) ?? C.byName.get(String(x.name).toLowerCase())).filter(Boolean);
+    find = { thumb, items: (raw.items ?? []).slice(0, 3), cols, sel: 0, color: cols[0] ?? null };
+    msg.textContent = find.items.length ? '' : 'No match. Try again closer, on plain paper, with just the one piece.';
+    await renderFind();
+  } catch (e) { msg.innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
+  finally { $('findCam').value = ''; $('findGal').value = ''; }
+}
+async function renderFind() {
+  const out = $('findOut'); if (!find?.items.length) { out.innerHTML = ''; return; }
+  const it = find.items[find.sel];
+  out.innerHTML = `<div class="card"><div class="findtop"><figure><img src="${find.thumb}" alt="Your piece"><figcaption>Yours</figcaption></figure>
+      <figure><img class="ref" src="${esc(it.img_url)}" alt="" referrerpolicy="no-referrer"><figcaption>Match</figcaption></figure></div>
+    <div class="acts">${find.items.map((x, i) => `<button type="button" class="small ${i === find.sel ? 'on' : ''}" data-fsel="${i}">${esc(x.id)} · ${Math.round(x.score * 100)}%</button>`).join('')}</div>
+    <div id="findInfo" class="status"><span class="spin"></span>Looking it up…</div></div>`;
+  const p = await partFromBL(it.id).catch(() => null), info = $('findInfo'); if (!info) return;
+  if (!p) { info.textContent = `${it.id} isn’t on Rebrickable.`; return; }
+  const s = spotOf(p, find.color);
+  info.innerHTML = `<h2>${esc(p.name)}</h2><p class="muted">${esc(p.part_num)}</p>
+    <div class="colrow"><span class="sw" style="background:#${find.color ? esc(find.color.rgb) : 'ccc'}" aria-hidden="true"></span><select id="findColor" aria-label="Colour">${colorOptions(find.color, find.cols)}</select></div>
+    <div class="goes" style="--pc:${placeColor(s[0])}">Goes in <b>${esc(spotText(s))}</b></div>
+    ${hintHtml(p, find.color)}<div id="findOwned" class="muted"><span class="spin"></span>Checking your lists…</div>`;
+  fillHints(info);
+  $('findColor').onchange = e => { find.color = COL.byId.get(+e.target.value) ?? null; renderFind(); };
+  if (!inv || Date.now() - inv.at > 5 * 60e3) await invLoad();
+  const rows = []; for (const g of inv?.groups ?? []) for (const r of g.rows) if (r.num === p.part_num) rows.push({ ...r, k: g.key });
+  const own = $('findOwned'); if (!own) return;
+  own.innerHTML = rows.length ? `<b>You have ${rows.reduce((a, r) => a + r.qty, 0)}</b>` + rows.map(r => `<div class="ownr"><span class="dot" style="background:#${esc(r.rgb)}"></span>${r.qty}× ${esc(r.color)} · ${esc(placeOf(r.k))}</div>`).join('') : 'You don’t have this part in your lists yet.';
+}
+$('findOut').addEventListener('click', e => { const b = e.target.closest('[data-fsel]'); if (b) { find.sel = +b.dataset.fsel; renderFind(); } });
+$('findCam').onchange = () => findFile($('findCam').files[0]);
+$('findGal').onchange = () => findFile($('findGal').files[0]);
+$('navFind').onclick = () => show('vFind');
+
+/* ---------- set progress ---------- */
+let tracked = store.get('sets', []), setStats = {};
+const normSet = v => { v = v.trim(); return /-\d+$/.test(v) ? v : v + '-1'; };
+async function setParts(num) {
+  const k = 'sp:' + num, cached = store.get(k); if (cached) return cached;
+  const m = new Map(); let u = `/lego/sets/${encodeURIComponent(num)}/parts/?page_size=1000&inc_minifig_parts=1`;
+  while (u) {
+    const d = await rb(u);
+    for (const r of d.results) {
+      if (r.is_spare) continue;
+      const key = `${r.part.part_num}|${r.color.id}`;
+      const x = m.get(key) ?? { num: r.part.part_num, name: r.part.name, img: r.part.part_img_url, cat: r.part.part_cat_id, colorId: r.color.id, color: r.color.name, rgb: r.color.rgb, trans: r.color.is_trans, qty: 0 };
+      x.qty += r.quantity; m.set(key, x);
+    }
+    u = d.next;
+  }
+  const rows = [...m.values()]; store.set(k, rows); return rows;
+}
+async function trackSet(raw) {
+  show('vSets');
+  const num = normSet(raw); if (!num || num === '-1') return;
+  if (tracked.some(t => t.num === num)) { $('setMsg').textContent = `${num} is already tracked.`; return refreshSets(); }
+  if (!cfg.key) { $('setMsg').textContent = 'Set up your Rebrickable key in Settings first.'; return; }
+  $('setMsg').innerHTML = '<span class="spin"></span>Looking up the set…';
+  try {
+    const d = await rb(`/lego/sets/${encodeURIComponent(num)}/`);
+    tracked.unshift({ num: d.set_num, name: d.name, year: d.year, img: d.set_img_url });
+    store.set('sets', tracked); $('setNum').value = ''; await refreshSets();
+  } catch (e) { $('setMsg').innerHTML = `<span class="bad-t">${esc(e.status === 404 ? `Set ${num} wasn’t found.` : e.message)}</span>`; }
+}
+async function refreshSets() {
+  renderSets(); if (!tracked.length) return;
+  if (!cfg.token) { $('setMsg').textContent = 'Sign in under Settings to compare with your lists.'; return; }
+  $('setMsg').innerHTML = '<span class="spin"></span>Comparing with your lists…';
+  try {
+    if (!inv || Date.now() - inv.at > 5 * 60e3) await invLoad();
+    const owned = new Map(); for (const g of inv?.groups ?? []) for (const r of g.rows) owned.set(`${r.num}|${r.colorId}`, (owned.get(`${r.num}|${r.colorId}`) ?? 0) + r.qty);
+    for (const t of tracked) {
+      const rows = await setParts(t.num); let need = 0, have = 0; const missing = [];
+      for (const r of rows) { const h = Math.min(r.qty, owned.get(`${r.num}|${r.colorId}`) ?? 0); need += r.qty; have += h; if (h < r.qty) missing.push({ ...r, have: h }); }
+      missing.sort((a, b) => ORDER.indexOf(spotFor(a.num, a.name, a.cat)[0]) - ORDER.indexOf(spotFor(b.num, b.name, b.cat)[0]) || a.name.localeCompare(b.name));
+      setStats[t.num] = { need, have, missing };
+    }
+    $('setMsg').textContent = 'Up to date.';
+  } catch (e) { $('setMsg').innerHTML = `<span class="bad-t">${esc(e.message)}</span>`; }
+  renderSets();
+}
+function renderSets() {
+  $('setList').innerHTML = tracked.length ? tracked.map(t => {
+    const st = setStats[t.num], pct = st && st.need ? Math.round(st.have / st.need * 100) : null;
+    return `<div class="card setc"><div class="seth">${t.img ? `<img src="${esc(t.img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="setimg" aria-hidden="true">🧱</span>'}
+      <div><b>${esc(t.name)}</b><div class="muted">${esc(t.num)} · ${esc(t.year)}</div>
+      ${st ? `<div class="pbar"><i style="width:${pct}%"></i></div><div class="muted">${pct}% · ${st.have} of ${st.need} pieces in your lists</div>` : '<div class="muted">Not compared yet.</div>'}</div></div>
+      ${st && st.missing.length ? `<details><summary>Missing (${st.missing.reduce((a, r) => a + r.qty - r.have, 0)} pieces)</summary>${st.missing.map(r => `<div class="invr">
+        ${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="noimg"></span>'}
+        <div><b>${esc(r.name)}</b><div class="meta"><span class="dot" style="background:#${esc(r.rgb)}"></span>${esc(r.color)} · ${esc(r.num)} · ${esc(placeOf(r.trans ? 'trans' : spotFor(r.num, r.name, r.cat)[0]))}</div></div>
+        <span class="q">${r.have}/${r.qty}</span></div>`).join('')}</details>` : st ? '<p class="ok-t">Complete in your lists.</p>' : ''}
+      <div class="acts"><button type="button" class="small danger" data-untrack="${esc(t.num)}">Stop tracking</button></div></div>`;
+  }).join('') : '<p class="muted">No sets tracked yet. Add one by number, or tap a set name under a printed piece.</p>';
+}
+$('setList').addEventListener('click', e => {
+  const b = e.target.closest('[data-untrack]'); if (!b) return;
+  tracked = tracked.filter(t => t.num !== b.dataset.untrack); store.set('sets', tracked); renderSets();
+});
+$('setAdd').onclick = () => trackSet($('setNum').value);
+$('setNum').addEventListener('keydown', e => { if (e.key === 'Enter') trackSet($('setNum').value); });
+$('setRefresh').onclick = refreshSets;
+$('navSets').onclick = () => { show('vSets'); refreshSets(); };
 
 /* ---------- start ---------- */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-if (cfg.key && cfg.token) { show('vScan'); colors().catch(() => {}); } else { fillSettings(); show('vSettings'); }
+if (cfg.key && cfg.token) { show('vScan'); colors().catch(() => {}); setTimeout(retryQueued, 3000); } else { fillSettings(); show('vSettings'); }
