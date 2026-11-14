@@ -110,6 +110,10 @@ canvas#annot{width:100%;height:auto;border-radius:10px;display:block;background:
 .rghead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 2px 8px}
 .rghead b{font-size:17px}
 .rgcount{color:var(--muted);font-size:14px}
+.small{font:inherit;font-size:14px;font-weight:600;padding:7px 12px;border-radius:9px;border:1.5px solid var(--pen);background:transparent;color:var(--pen);min-height:38px;cursor:pointer}
+.small.danger{border-color:var(--warn);color:var(--warn)}
+.small:disabled{opacity:.5}
+.invact{padding:4px 14px 10px;display:flex;justify-content:flex-end}
 [hidden]{display:none !important}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pen);outline-offset:2px}
 </style>
@@ -251,7 +255,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 </section>
 
 </main>
-<script src="scan-core.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="scan-core.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

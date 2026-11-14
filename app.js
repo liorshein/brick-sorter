@@ -253,6 +253,7 @@ function invRender() {
     const rows = g.rows.filter(match); if (q && !rows.length) return '';
     const n = g.rows.reduce((a, r) => a + r.qty, 0);
     return `<details class="invg" ${q || g.open ? 'open' : ''} data-k="${g.key}"><summary><span>${esc(placeOf(g.key))}</span><span class="pill ${n ? 'good' : 'zero'}">${n}</span></summary>
+      ${n && !q ? `<div class="invact"><button type="button" class="small danger" data-empty="${g.key}">Empty this list</button></div>` : ''}
       ${rows.length ? rows.map(r => `<div class="invr${invPrev && (invPrev.get(r.num + '|' + r.colorId) ?? 0) < r.qty ? ' new' : ''}">
         ${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="noimg"></span>'}
         <div><b>${esc(r.name)}</b><div class="meta"><span class="dot" style="background:#${esc(r.rgb)}"></span>${esc(r.color)} · ${esc(r.num)}</div></div>
@@ -281,6 +282,25 @@ async function invLoad() {
 }
 $('navInventory').onclick = () => { invRender(); show('vInventory'); invLoad(); };
 $('invRefresh').onclick = invLoad;
+$('invGroups').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-empty]'); if (!b || invLoading) return;
+  const key = b.dataset.empty, g = inv?.groups.find(x => x.key === key); if (!g) return;
+  const n = g.rows.reduce((a, r) => a + r.qty, 0);
+  if (!confirm(`Remove all ${n} pieces (${g.rows.length} entries) from “${SPOTS[key]}”?\n\nThis can’t be undone. Only this list is affected.`)) return;
+  b.disabled = true; b.textContent = 'Emptying…';
+  $('invMsg').innerHTML = '<span class="spin"></span>Emptying the list…';
+  try {
+    const list = (await myLists()).find(l => l.name === SPOTS[key]);
+    if (!list) throw new Error('List not found. Use Settings → Check / create lists.');
+    // Same trick as Start over: delete the list and recreate it empty under the same name (2 calls).
+    await rb(`/users/${cfg.token}/partlists/${list.id}/`, { method: 'DELETE' });
+    await rb(`/users/${cfg.token}/partlists/`, { method: 'POST', form: { name: list.name, is_buildable: String(list.is_buildable ?? true) } });
+    invPrev = null; await invLoad();
+    $('invMsg').innerHTML = `<span class="ok-t">${esc(placeOf(key))} is empty now.</span>`;
+  } catch (err) {
+    $('invMsg').innerHTML = `<span class="bad-t">${esc(err.message)}</span>`; b.disabled = false; b.textContent = 'Empty this list';
+  }
+});
 $('invSearch').addEventListener('input', invRender);
 $('invGroups').addEventListener('toggle', e => {
   const d = e.target.closest?.('details[data-k]'); if (!d || !inv || $('invSearch').value) return;
