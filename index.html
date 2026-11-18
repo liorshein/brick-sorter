@@ -198,7 +198,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <label class="f" for="thColor">…and colour at least <span id="thColorV"></span>%</label>
     <input type="range" id="thColor" min="50" max="95" step="5">
     <label class="f" for="capDrawer">A drawer holds about (pieces)</label><input type="number" id="capDrawer" inputmode="numeric" min="10" step="50">
-    <label class="f" for="capSlot">A 12-slot box slot holds about (pieces)</label><input type="number" id="capSlot" inputmode="numeric" min="10" step="10">
+    <label class="f" for="capSlot">A small drawer holds about (pieces)</label><input type="number" id="capSlot" inputmode="numeric" min="10" step="10">
     <label class="chk"><input type="checkbox" id="fbOn"> Send my corrections to Brickognize to help improve its recognition</label>
     <p class="muted" id="learnInfo" style="margin-top:12px"></p>
     <button class="btn ghost block" id="learnReset" type="button">Forget learned colour fixes</button>
@@ -233,9 +233,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <h3>Storage</h3>
     <ul>
       <li><b>Drawer tower</b>, top to bottom: 1 Bricks · 2 Plates · 3 Tiles · 4 Slopes / Wedges · 5 Technic &amp; Misc · 6 Round &amp; SNOT</li>
-      <li><b>Clear 12-slot box</b> (blue handle): Transparent · Minifigs · Minifig accessories · To identify · Plants &amp; animals · Wheels &amp; tires · Doors, windows &amp; fences · Bars, handles &amp; ladders · Arches &amp; curves · Modified plates · Modified bricks · Spare</li>
-      <li><b>Red-handled box</b>: overflow when a drawer is full</li>
-      <li><b>Classic 10695 box</b>: baseplates and large parts</li>
+      <li><b>Small drawers</b> (4 × 4, cream): row 1 Arches &amp; curves · Modified bricks · Doors, windows &amp; fences · Minifig accessories — row 2 Modified plates · Large parts · To identify · Transparent — row 3 Bars, handles &amp; ladders · Wheels &amp; tires · Minifigs · Plants &amp; animals — row 4 spare</li>
       <li><b>Yellow Classic 10698 box</b>: identified sets with their instructions</li>
     </ul>
     <h3>Workflow</h3>
@@ -358,7 +356,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
   <button type="button" id="navHistory"><span aria-hidden="true">🕘</span>History</button>
 </nav>
 <div class="toast" id="toast" role="status" hidden></div>
-<script src="scan-core.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="scan-core.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

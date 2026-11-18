@@ -10,7 +10,8 @@ const store = {
   get(k, d = null) { try { const v = localStorage.getItem('bs:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('bs:' + k, JSON.stringify(v)); } catch { /* storage full or blocked */ } },
 };
-let cfg = { key: '', token: '', thShape: 75, thColor: 70, capDrawer: 1000, capSlot: 250, feedback: false, ...store.get('cfg', {}) };
+let cfg = { key: '', token: '', thShape: 75, thColor: 70, capDrawer: 1000, capSlot: 150, feedback: false, ...store.get('cfg', {}) };
+if (cfg.capSlot === 250) cfg.capSlot = 150; // old default was for the 12-slot box
 const TH = () => ({ s: cfg.thShape / 100, c: cfg.thColor / 100 });
 
 /* scan history (IndexedDB, on this phone only) */
@@ -66,18 +67,21 @@ function spotFor(num, name, cat) {
 const spotOf = (p, c) => c?.is_trans ? ['trans', null] : spotFor(p.part_num, p.name, p.part_cat_id);
 // Physical places (Rebrickable list names above stay as they are).
 const TOWER = ['bricks', 'plates', 'tiles', 'slopes', 'technic', 'round'];
+// LEADLOONG 4×4 unit, read left to right, top to bottom (row 4 is spare).
+const SMALL = { arches: 'row 1 #1', modbricks: 'row 1 #2', doors: 'row 1 #3', acc: 'row 1 #4',
+  modplates: 'row 2 #1', overflow: 'row 2 #2', identify: 'row 2 #3', trans: 'row 2 #4',
+  bars: 'row 3 #1', wheels: 'row 3 #2', minifigs: 'row 3 #3', plants: 'row 3 #4' };
 const SHORT = { bricks: 'Bricks', plates: 'Plates', tiles: 'Tiles', slopes: 'Slopes / Wedges', technic: 'Technic & Misc', round: 'Round & SNOT',
   trans: 'Transparent', minifigs: 'Minifigs', acc: 'Minifig accessories', identify: 'To identify', plants: 'Plants & animals', wheels: 'Wheels & tires',
   doors: 'Doors, windows & fences', bars: 'Bars, handles & ladders', arches: 'Arches & curves', modplates: 'Modified plates', modbricks: 'Modified bricks', overflow: 'Large parts' };
 function placeOf(k) {
   const i = TOWER.indexOf(k);
   if (i >= 0) return `Drawer ${i + 1} · ${SHORT[k]}`;
-  if (k === 'overflow') return 'Classic 10695 box · Large parts';
-  return `12-slot box · ${SHORT[k]}`;
+  return `Small drawers ${SMALL[k] ?? ''} · ${SHORT[k]}`;
 }
 const spotText = s => placeOf(s[0]) + (s[1] ? ' › ' + s[1] : '');
-const HANDLE = { bricks: '#9BD83A', plates: '#F6C531', tiles: '#F2862A', slopes: '#9BD83A', technic: '#F6C531', round: '#F2862A', overflow: '#FFCF1F' };
-const placeColor = k => HANDLE[k] ?? '#5B9BD5'; // 12-slot box: its blue handle
+const HANDLE = { bricks: '#9BD83A', plates: '#F6C531', tiles: '#F2862A', slopes: '#9BD83A', technic: '#F6C531', round: '#F2862A' };
+const placeColor = k => HANDLE[k] ?? '#C4B48A'; // small drawers: their cream frame
 const keyOf = x => `${x.part.part_num}|${x.color.id}`;
 
 /* ---------- Rebrickable (rate limited to ~1 call/s) ---------- */
@@ -266,7 +270,7 @@ function invRender() {
   el.innerHTML = inv.groups.map(g => {
     const rows = g.rows.filter(match); if (q && !rows.length) return '';
     const n = g.rows.reduce((a, r) => a + r.qty, 0);
-    const cap = TOWER.includes(g.key) ? cfg.capDrawer : g.key === 'overflow' ? 0 : cfg.capSlot;
+    const cap = TOWER.includes(g.key) ? cfg.capDrawer : cfg.capSlot;
     const pct = cap ? Math.min(100, Math.round(n / cap * 100)) : 0;
     return `<details class="invg" ${q || g.open ? 'open' : ''} data-k="${g.key}" style="--pc:${placeColor(g.key)}"><summary><span>${esc(placeOf(g.key))}${pct >= 85 ? ' <span class="pill">Getting full</span>' : ''}</span><span class="pill ${n ? 'good' : 'zero'}">${n}</span>${cap ? `<span class="fill" title="${pct}% of about ${cap}"><i style="width:${pct}%"></i></span>` : ''}</summary>
       ${n && !q ? `<div class="invact"><button type="button" class="small danger" data-empty="${g.key}">Empty this list</button></div>` : ''}
